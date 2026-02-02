@@ -1,15 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import User
+from app.schemas.message import MessageResponse
 from app.schemas.room import (
     ParticipantResponse,
     RoomCreate,
     RoomResponse,
     RoomWithParticipantsResponse,
 )
+from app.services.chat_service import ChatService
 from app.services.room_service import RoomService
 
 router = APIRouter(prefix="/rooms", tags=["Rooms"])
@@ -174,3 +176,50 @@ async def close_room(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=str(e),
         )
+
+
+@router.get("/{room_code}/messages", response_model=list[MessageResponse])
+async def get_room_messages(
+    room_code: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(50, ge=1, le=100),
+    before_id: int | None = Query(None),
+):
+    """
+    Get chat message history for a room.
+
+    - limit: Number of messages to return (1-100, default 50)
+    - before_id: Get messages older than this ID (for pagination)
+    """
+    room_service = RoomService(db)
+    room = await room_service.get_room_by_code(room_code)
+
+    if not room:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Room not found",
+        )
+
+    # Verify user is a participant
+    participant = await room_service.get_participant(room.id, current_user.id)
+    if not participant:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a participant of this room",
+        )
+
+    chat_service = ChatService(db)
+    messages = await chat_service.get_room_messages(room.id, limit, before_id)
+
+    return [
+        MessageResponse(
+            id=msg.id,
+            room_id=msg.room_id,
+            user_id=msg.user_id,
+            username=msg.user.username,
+            content=msg.content,
+            created_at=msg.created_at,
+        )
+        for msg in messages
+    ]
