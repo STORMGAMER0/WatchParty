@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Will You Be My Valentine?</title>
+<style>
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #ffe6eb;
+    text-align: center;
+    overflow: hidden;
+    position: relative;
+  }
+
+  h1 {
+    margin-bottom: 30px;
+    font-size: 1.8em;
+    padding: 0 10px;
+  }
+
+  .buttons {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 20px;
+  }
+
+  button {
+    padding: 15px 25px;
+    font-size: 18px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+
+  #yesBtn {
+    background-color: #ff4d6d;
+    color: white;
+    font-weight: bold;
+  }
+
+  #noBtn {
+    background-color: #999;
+    color: white;
+  }
+
+  #celebration {
+    display: none;
+    margin-top: 20px;
+    font-size: 2em;
+    animation: pop 0.5s ease forwards;
+  }
+
+  @keyframes pop {
+    0% { transform: scale(0.2); opacity: 0; }
+    50% { transform: scale(1.2); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+  }
+
+  @media (max-width: 480px) {
+    .buttons {
+      flex-direction: column;
+    }
+    button {
+      width: 70%;
+      margin: 10px auto;
+    }
+  }
+</style>
+</head>
+<body>
+
+<h1>Will you be my Valentine, Mon Coeur? ❤️</h1>
+
+<div class="buttons">
+  <button id="yesBtn">YES 💘</button>
+  <button id="noBtn">NO 😅</button>
+</div>
+
+<div id="celebration">🎉💖 You said YES! 💖🎉</div>
+
+<canvas id="confetti"></canvas>
+
+<script>
+  const noBtn = document.getElementById("noBtn");
+  const yesBtn = document.getElementById("yesBtn");
+  const celebration = document.getElementById("celebration");
+  let noCount = 0;
+
+  function moveNoButton() {
+    if (noCount < 3) {
+      const maxX = window.innerWidth - noBtn.offsetWidth;
+      const maxY = window.innerHeight - noBtn.offsetHeight;
+      const x = Math.random() * maxX;
+      const y = Math.random() * maxY;
+      noBtn.style.position = 'absolute';
+      noBtn.style.left = x + "px";
+      noBtn.style.top = y + "px";
+    }
+  }
+
+  // NO button teasing for hover and touch
+  noBtn.addEventListener("mouseenter", moveNoButton);
+  noBtn.addEventListener("touchstart", moveNoButton);
+
+  noBtn.addEventListener("click", () => {
+    noCount++;
+    if (noCount < 3) {
+      alert("Are you sure? 😢");
+    } else {
+      alert("I no care, you must be my Valentine! ❤️");
+      triggerYes();
+    }
+  });
+
+  // YES button logic
+  yesBtn.addEventListener("click", triggerYes);
+
+  function triggerYes() {
+    celebration.style.display = "block";
+    startConfetti();
+  }
+
+  // Confetti effect
+  const canvas = document.getElementById("confetti");
+  const ctx = canvas.getContext("2d");
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  const confettiPieces = [];
+  for(let i=0;i<50;i++){ // optimized for mobile
+    confettiPieces.push({
+      x: Math.random()*canvas.width,
+      y: Math.random()*canvas.height - canvas.height,
+      r: Math.random()*6+2,
+      d: Math.random()*20+10,
+      color: `hsl(${Math.random()*360}, 100%, 50%)`,
+      tilt: Math.random()*10-10,
+      tiltAngleIncrement: Math.random()*0.07+0.05
+    });
+  }
+
+  function drawConfetti() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    confettiPieces.forEach(p=>{
+      ctx.beginPath();
+      ctx.lineWidth=p.r;
+      ctx.strokeStyle=p.color;
+      ctx.moveTo(p.x+p.tilt+p.r/2,p.y);
+      ctx.lineTo(p.x+p.tilt,p.y+p.tilt+p.r/2);
+      ctx.stroke();
+    });
+    updateConfetti();
+    requestAnimationFrame(drawConfetti);
+  }
+
+  function updateConfetti(){
+    confettiPieces.forEach(p=>{
+      p.tiltAngle += p.tiltAngleIncrement;
+      p.y += (Math.cos(p.d)+3+p.r/2)/2;
+      p.x += Math.sin(p.d);
+      p.tilt=Math.sin(p.tiltAngle)*15;
+      if(p.y>canvas.height){
+        p.x=Math.random()*canvas.width;
+        p.y=-20;
+      }
+    });
+  }
+
+  let confettiStarted = false;
+  function startConfetti(){
+    if(!confettiStarted){
+      confettiStarted = true;
+      drawConfetti();
+    }
+  }
+
+  window.addEventListener('resize',()=>{
+    canvas.width=window.innerWidth;
+    canvas.height=window.innerHeight;
+  });
+</script>
+
+</body>
+</html>

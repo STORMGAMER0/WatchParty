@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_current_user
 from app.core.security import create_access_token, create_refresh_token, decode_token
 from app.db.session import get_db
+from app.models.user import User
 from app.schemas.auth import Token, TokenRefresh, UserLogin, UserRegister, UserResponse
 from app.services.auth_service import AuthService
 
@@ -86,3 +88,11 @@ async def refresh_token(token_data: TokenRefresh, db: AsyncSession = Depends(get
         access_token=access_token,
         refresh_token=refresh_token,
     )
+
+
+@router.get("/me", response_model=UserResponse)
+async def get_me(current_user: User = Depends(get_current_user)):
+    """
+    Get the current authenticated user's information.
+    """
+    return current_user

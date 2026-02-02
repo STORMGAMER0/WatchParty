@@ -1,5 +1,5 @@
 from sqlalchemy import String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
 
@@ -15,6 +15,13 @@ class User(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(default=True)
     is_admin: Mapped[bool] = mapped_column(default=False)
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Relationships
+    hosted_rooms: Mapped[list["Room"]] = relationship("Room", back_populates="host")
+    room_participations: Mapped[list["RoomParticipant"]] = relationship(
+        "RoomParticipant", back_populates="user"
+    )
+    messages: Mapped[list["Message"]] = relationship("Message", back_populates="user")
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, username={self.username})>"
