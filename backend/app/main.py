@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.websocket.routes import router as websocket_router
 
 app = FastAPI(
     title=settings.app_name,
@@ -21,6 +22,9 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(api_router, prefix=settings.api_v1_prefix)
+
+# Include WebSocket routes
+app.include_router(websocket_router)
 
 
 @app.get("/")
