@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { api } from '../services/api';
 import Spinner from '../components/Spinner';
+import { toast } from '../components/Toast';
 
 interface Room {
   id: number;
@@ -20,8 +21,6 @@ export default function Dashboard() {
   const [joinCode, setJoinCode] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -49,14 +48,13 @@ export default function Dashboard() {
 
   const createRoom = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     setIsCreating(true);
     try {
       const response = await api.post('/rooms', { title: newRoomTitle });
       setNewRoomTitle('');
       navigate(`/room/${response.data.room_code}`);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to create room');
+      toast.error(err.response?.data?.detail || 'Failed to create room');
     } finally {
       setIsCreating(false);
     }
@@ -64,12 +62,11 @@ export default function Dashboard() {
 
   const joinRoom = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     try {
       await api.post(`/rooms/${joinCode}/join`);
       navigate(`/room/${joinCode}`);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to join room');
+      toast.error(err.response?.data?.detail || 'Failed to join room');
     }
   };
 
@@ -80,8 +77,7 @@ export default function Dashboard() {
 
   const copyRoomCode = (code: string) => {
     navigator.clipboard.writeText(code);
-    setSuccess('Room code copied!');
-    setTimeout(() => setSuccess(''), 2000);
+    toast.success('Room code copied!');
   };
 
   if (isLoading) {
@@ -128,31 +124,7 @@ export default function Dashboard() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-6xl mx-auto px-4 py-8">
-        {/* Notifications */}
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-3 rounded-lg mb-6 flex items-center gap-2">
-            <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span>{error}</span>
-            <button onClick={() => setError('')} className="ml-auto hover:text-red-300">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        )}
-
-        {success && (
-          <div className="bg-green-500/10 border border-green-500/50 text-green-400 px-4 py-3 rounded-lg mb-6 flex items-center gap-2">
-            <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            <span>{success}</span>
-          </div>
-        )}
-
+      <main className="max-w-6xl mx-auto px-4 py-6 sm:py-8">
         {/* Action Cards */}
         <div className="grid md:grid-cols-2 gap-6 mb-8">
           {/* Create Room */}

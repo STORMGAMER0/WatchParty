@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { api } from '../services/api';
 import Spinner from '../components/Spinner';
+import { toast } from '../components/Toast';
 
 interface Message {
   id: number;
@@ -10,6 +11,7 @@ interface Message {
   username: string;
   content: string;
   created_at: string;
+  isSystem?: boolean;
 }
 
 interface Participant {
@@ -97,10 +99,37 @@ export default function Room() {
           },
         ]);
       } else if (data.event === 'user_joined') {
+        // Add system message
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now(),
+            user_id: 0,
+            username: 'System',
+            content: `${data.username} joined the room`,
+            created_at: data.timestamp,
+            isSystem: true,
+          },
+        ]);
+        // Refresh participants
         api.get(`/rooms/${roomCode}`).then((res) => setRoom(res.data));
       } else if (data.event === 'user_left') {
+        // Add system message
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now(),
+            user_id: 0,
+            username: 'System',
+            content: `${data.username} left the room`,
+            created_at: data.timestamp,
+            isSystem: true,
+          },
+        ]);
+        // Refresh participants
         api.get(`/rooms/${roomCode}`).then((res) => setRoom(res.data));
       } else if (data.event === 'room_closed') {
+        toast.info('Room has been closed by the host');
         navigate('/dashboard');
       }
     };
@@ -141,7 +170,7 @@ export default function Room() {
       await api.post(`/rooms/${roomCode}/leave`);
       navigate('/dashboard');
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to leave room');
+      toast.error(err.response?.data?.detail || 'Failed to leave room');
       setIsLeaving(false);
     }
   };
@@ -149,6 +178,7 @@ export default function Room() {
   const copyRoomCode = () => {
     if (roomCode) {
       navigator.clipboard.writeText(roomCode);
+      toast.success('Room code copied!');
     }
   };
 
@@ -324,17 +354,25 @@ export default function Room() {
                 <p className="text-gray-500 text-sm text-center py-8">No messages yet. Say hi!</p>
               ) : (
                 messages.map((msg) => (
-                  <div key={msg.id} className="group">
-                    <div className="flex items-baseline gap-2">
-                      <span className={`font-medium text-sm ${msg.user_id === user?.id ? 'text-blue-400' : 'text-purple-400'}`}>
-                        {msg.username}
-                      </span>
-                      <span className="text-gray-600 text-xs opacity-0 group-hover:opacity-100 transition">
-                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+                  msg.isSystem ? (
+                    <div key={msg.id} className="flex items-center gap-2 py-1">
+                      <div className="flex-1 h-px bg-gray-700"></div>
+                      <span className="text-xs text-gray-500 px-2">{msg.content}</span>
+                      <div className="flex-1 h-px bg-gray-700"></div>
                     </div>
-                    <p className="text-gray-300 text-sm mt-0.5 break-words">{msg.content}</p>
-                  </div>
+                  ) : (
+                    <div key={msg.id} className="group">
+                      <div className="flex items-baseline gap-2">
+                        <span className={`font-medium text-sm ${msg.user_id === user?.id ? 'text-blue-400' : 'text-purple-400'}`}>
+                          {msg.username}
+                        </span>
+                        <span className="text-gray-600 text-xs opacity-0 group-hover:opacity-100 transition">
+                          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <p className="text-gray-300 text-sm mt-0.5 break-words">{msg.content}</p>
+                    </div>
+                  )
                 ))
               )}
               <div ref={messagesEndRef} />

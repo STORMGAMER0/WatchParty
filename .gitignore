@@ -96,3 +96,6 @@ dump.rdb
 *.temp
 *.bak
 *.swp
+
+# Personal/Local files
+teaching_prompt.md
