@@ -36,16 +36,16 @@ class RoomService:
         return result.scalar_one_or_none()
 
     async def get_room_by_code(self, room_code: str) -> Room | None:
-        """Get a room by its shareable code."""
-        query = select(Room).where(Room.room_code == room_code)
+        """Get a room by its shareable code (case-insensitive)."""
+        query = select(Room).where(func.upper(Room.room_code) == room_code.upper())
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
     async def get_room_with_participants(self, room_code: str) -> Room | None:
-        """Get a room with its participants eagerly loaded."""
+        """Get a room with its participants eagerly loaded (case-insensitive)."""
         query = (
             select(Room)
-            .where(Room.room_code == room_code)
+            .where(func.upper(Room.room_code) == room_code.upper())
             .options(
                 selectinload(Room.participants).selectinload(RoomParticipant.user),
                 selectinload(Room.host),

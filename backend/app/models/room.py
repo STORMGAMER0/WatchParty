@@ -8,7 +8,8 @@ from app.models.base import Base, TimestampMixin
 
 
 def generate_room_code(length: int = 6) -> str:
-    alphabet = string.ascii_letters + string.digits
+    # Use uppercase only for easier sharing (no ambiguity between 'a' and 'A')
+    alphabet = string.ascii_uppercase + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
