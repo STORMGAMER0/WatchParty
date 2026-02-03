@@ -22,6 +22,8 @@ class BrowserManager:
     def __init__(self):
         # Dictionary mapping room_code -> BrowserSession
         self._sessions: dict[str, BrowserSession] = {}
+        # Dictionary mapping room_code -> (controller_id, controller_username)
+        self._controllers: dict[str, tuple[int, str]] = {}
 
     def get_session(self, room_code: str) -> BrowserSession | None:
         """
@@ -92,6 +94,33 @@ class BrowserManager:
     def active_session_count(self) -> int:
         """Get the number of active browser sessions."""
         return len(self._sessions)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Remote Control Management
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def get_controller(self, room_code: str) -> tuple[int, str] | None:
+        """
+        Get the current controller for a room.
+
+        Returns:
+            Tuple of (user_id, username) or None if no controller set
+        """
+        return self._controllers.get(room_code)
+
+    def set_controller(self, room_code: str, user_id: int, username: str) -> None:
+        """Set the controller for a room."""
+        self._controllers[room_code] = (user_id, username)
+        print(f"[BrowserManager] Controller for {room_code}: {username} (id={user_id})")
+
+    def clear_controller(self, room_code: str) -> None:
+        """Clear the controller for a room."""
+        self._controllers.pop(room_code, None)
+
+    def is_controller(self, room_code: str, user_id: int) -> bool:
+        """Check if a user is the current controller."""
+        controller = self.get_controller(room_code)
+        return controller is not None and controller[0] == user_id
 
 
 # Singleton instance - use this throughout the application

@@ -13,6 +13,8 @@ from app.websocket.events import (
     ChatMessageEvent,
     ErrorEvent,
     EventType,
+    RemoteChangedEvent,
+    RemoteRequestEvent,
     UserJoinedEvent,
     UserLeftEvent,
 )
@@ -164,7 +166,17 @@ async def handle_message(db: AsyncSession, connection, room, data: dict):
         await browser_manager.create_session(connection.room_code)
         start_screenshot_stream(connection.room_code)
 
-    elif event_type == EventType.BROWSER_STOP:
+        # Host starts with control
+        browser_manager.set_controller(connection.room_code, connection.user_id, connection.username)
+
+        # Broadcast who has control
+        remote_event = RemoteChangedEvent(
+            controller_id=connection.user_id,
+            controller_username=connection.username,
+        )
+        await manager.broadcast_to_room(connection.room_code, remote_event.model_dump(mode="json"))
+
+    elif event_type == EventType.BROWSER_STOP or event_type == "browser_stop":
         # Only host can stop the browser
         if connection.user_id != room.host_id:
             error = ErrorEvent(message="Only the host can stop the browser")
@@ -174,11 +186,18 @@ async def handle_message(db: AsyncSession, connection, room, data: dict):
         # Stop screenshot streaming and close browser
         stop_screenshot_stream(connection.room_code)
         await browser_manager.close_session(connection.room_code)
+        browser_manager.clear_controller(connection.room_code)
 
     elif event_type == EventType.BROWSER_NAVIGATE:
         session = browser_manager.get_session(connection.room_code)
         if not session:
             error = ErrorEvent(message="Browser not started")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Only controller can navigate
+        if not browser_manager.is_controller(connection.room_code, connection.user_id):
+            error = ErrorEvent(message="You don't have control of the browser")
             await manager.send_personal(connection, error.model_dump(mode="json"))
             return
 
@@ -189,6 +208,14 @@ async def handle_message(db: AsyncSession, connection, room, data: dict):
     elif event_type == EventType.BROWSER_CLICK:
         session = browser_manager.get_session(connection.room_code)
         if not session:
+            error = ErrorEvent(message="Browser not started")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Only controller can click
+        if not browser_manager.is_controller(connection.room_code, connection.user_id):
+            error = ErrorEvent(message="You don't have control of the browser")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
             return
 
         x = data.get("x", 0)
@@ -198,6 +225,14 @@ async def handle_message(db: AsyncSession, connection, room, data: dict):
     elif event_type == EventType.BROWSER_TYPE:
         session = browser_manager.get_session(connection.room_code)
         if not session:
+            error = ErrorEvent(message="Browser not started")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Only controller can type
+        if not browser_manager.is_controller(connection.room_code, connection.user_id):
+            error = ErrorEvent(message="You don't have control of the browser")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
             return
 
         text = data.get("text", "")
@@ -207,6 +242,14 @@ async def handle_message(db: AsyncSession, connection, room, data: dict):
     elif event_type == EventType.BROWSER_KEYPRESS:
         session = browser_manager.get_session(connection.room_code)
         if not session:
+            error = ErrorEvent(message="Browser not started")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Only controller can press keys
+        if not browser_manager.is_controller(connection.room_code, connection.user_id):
+            error = ErrorEvent(message="You don't have control of the browser")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
             return
 
         key = data.get("key", "")
@@ -216,11 +259,119 @@ async def handle_message(db: AsyncSession, connection, room, data: dict):
     elif event_type == EventType.BROWSER_SCROLL:
         session = browser_manager.get_session(connection.room_code)
         if not session:
+            error = ErrorEvent(message="Browser not started")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Only controller can scroll
+        if not browser_manager.is_controller(connection.room_code, connection.user_id):
+            error = ErrorEvent(message="You don't have control of the browser")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
             return
 
         delta_x = data.get("deltaX", 0)
         delta_y = data.get("deltaY", 0)
         await session.scroll(int(delta_x), int(delta_y))
+
+    # ─────────────────────────────────────────────────────────────
+    # Remote Control Events
+    # ─────────────────────────────────────────────────────────────
+    elif event_type == EventType.REMOTE_REQUEST:
+        # Any user can request control - broadcast to everyone
+        session = browser_manager.get_session(connection.room_code)
+        if not session:
+            error = ErrorEvent(message="Browser not started")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Don't let the current controller request control (they already have it)
+        if browser_manager.is_controller(connection.room_code, connection.user_id):
+            error = ErrorEvent(message="You already have control")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Broadcast the request to everyone in the room
+        request_event = RemoteRequestEvent(
+            user_id=connection.user_id,
+            username=connection.username,
+        )
+        await manager.broadcast_to_room(
+            connection.room_code, request_event.model_dump(mode="json")
+        )
+
+    elif event_type == EventType.REMOTE_PASS:
+        # Current controller passes control to another user
+        session = browser_manager.get_session(connection.room_code)
+        if not session:
+            error = ErrorEvent(message="Browser not started")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Only the current controller can pass control
+        if not browser_manager.is_controller(connection.room_code, connection.user_id):
+            error = ErrorEvent(message="You don't have control to pass")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Get target user ID from the message
+        target_user_id = data.get("target_user_id")
+
+        if not target_user_id:
+            error = ErrorEvent(message="No target user specified")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Look up the target user from active connections (don't trust client!)
+        target_connection = manager.get_connection_by_user_id(
+            connection.room_code, target_user_id
+        )
+
+        if not target_connection:
+            error = ErrorEvent(message="User not found in room")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Transfer control (using verified username from server)
+        browser_manager.set_controller(
+            connection.room_code, target_user_id, target_connection.username
+        )
+
+        # Broadcast the change to everyone
+        remote_event = RemoteChangedEvent(
+            controller_id=target_user_id,
+            controller_username=target_connection.username,
+        )
+        await manager.broadcast_to_room(
+            connection.room_code, remote_event.model_dump(mode="json")
+        )
+
+    elif event_type == EventType.REMOTE_TAKE:
+        # Host forcefully takes control
+        session = browser_manager.get_session(connection.room_code)
+        if not session:
+            error = ErrorEvent(message="Browser not started")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Only the host can take control
+        if connection.user_id != room.host_id:
+            error = ErrorEvent(message="Only the host can take control")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Host takes control
+        browser_manager.set_controller(
+            connection.room_code, connection.user_id, connection.username
+        )
+
+        # Broadcast the change to everyone
+        remote_event = RemoteChangedEvent(
+            controller_id=connection.user_id,
+            controller_username=connection.username,
+        )
+        await manager.broadcast_to_room(
+            connection.room_code, remote_event.model_dump(mode="json")
+        )
 
     else:
         error = ErrorEvent(message=f"Unknown event type: {event_type}")

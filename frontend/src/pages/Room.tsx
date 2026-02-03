@@ -50,6 +50,10 @@ export default function Room() {
   const [browserUrl, setBrowserUrl] = useState('');
   const [isBrowserRunning, setIsBrowserRunning] = useState(false);
 
+  // Remote control state
+  const [controllerId, setControllerId] = useState<number | null>(null);
+  const [controllerUsername, setControllerUsername] = useState<string>('');
+
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -142,9 +146,23 @@ export default function Room() {
       else if (data.event === 'browser_frame') {
         setBrowserFrame(data.frame);
         setBrowserUrl(data.url);
-        setIsBrowserRunning(true);  // React optimizes if value unchanged
+        setIsBrowserRunning(true);
       } else if (data.event === 'browser_url_changed') {
         setBrowserUrl(data.url);
+      }
+      // Remote control events
+      else if (data.event === 'remote_changed') {
+        setControllerId(data.controller_id);
+        setControllerUsername(data.controller_username);
+        // Show toast if someone else took/received control
+        if (data.controller_id !== user?.id) {
+          toast.info(`${data.controller_username} now has control`);
+        }
+      } else if (data.event === 'remote_request') {
+        // Someone is requesting control - show toast to everyone
+        if (data.user_id !== user?.id) {
+          toast.info(`${data.username} is requesting control`);
+        }
       }
     };
 
@@ -205,6 +223,11 @@ export default function Room() {
   const startBrowser = () => {
     sendBrowserCommand('browser_start');
     setIsBrowserRunning(true);
+    // Optimistically set host as controller (server will confirm via remote_changed)
+    if (user) {
+      setControllerId(user.id);
+      setControllerUsername(user.username);
+    }
   };
 
   const stopBrowser = () => {
@@ -212,6 +235,9 @@ export default function Room() {
     setIsBrowserRunning(false);
     setBrowserFrame(null);
     setBrowserUrl('');
+    // Clear controller state
+    setControllerId(null);
+    setControllerUsername('');
   };
 
   const navigateBrowser = (url: string) => {
@@ -232,6 +258,19 @@ export default function Room() {
 
   const scrollBrowser = (deltaX: number, deltaY: number) => {
     sendBrowserCommand('browser_scroll', { deltaX, deltaY });
+  };
+
+  // Remote control functions
+  const requestControl = () => {
+    sendBrowserCommand('remote_request');
+  };
+
+  const passControl = (targetUserId: number) => {
+    sendBrowserCommand('remote_pass', { target_user_id: targetUserId });
+  };
+
+  const takeControl = () => {
+    sendBrowserCommand('remote_take');
   };
 
   if (error && !room) {
@@ -267,6 +306,7 @@ export default function Room() {
   }
 
   const isHost = room.host_id === user?.id;
+  const hasControl = controllerId === user?.id;
 
   const statusColors = {
     connecting: 'bg-yellow-500',
@@ -342,6 +382,7 @@ export default function Room() {
             frame={browserFrame}
             currentUrl={browserUrl}
             isHost={isHost}
+            hasControl={hasControl}
             isRunning={isBrowserRunning}
             onStart={startBrowser}
             onStop={stopBrowser}
@@ -350,6 +391,13 @@ export default function Room() {
             onType={typeBrowser}
             onKeyPress={keypressBrowser}
             onScroll={scrollBrowser}
+            // Control bar props
+            participants={room.participants}
+            controllerId={controllerId}
+            currentUserId={user?.id || 0}
+            onRequestControl={requestControl}
+            onPassControl={passControl}
+            onTakeControl={takeControl}
           />
         </div>
 

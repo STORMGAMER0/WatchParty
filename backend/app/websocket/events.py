@@ -27,6 +27,12 @@ class EventType(str, Enum):
     BROWSER_FRAME = "browser_frame"  # Screenshot frame
     BROWSER_URL_CHANGED = "browser_url_changed"
 
+    # Remote control events
+    REMOTE_REQUEST = "remote_request"  # User requests control
+    REMOTE_PASS = "remote_pass"  # Pass control to someone
+    REMOTE_TAKE = "remote_take"  # Host takes control back
+    REMOTE_CHANGED = "remote_changed"  # Broadcast: controller changed
+
     # System events
     ERROR = "error"
     ROOM_CLOSED = "room_closed"
@@ -98,3 +104,20 @@ class BrowserUrlChangedEvent(BaseEvent):
 
     event: EventType = EventType.BROWSER_URL_CHANGED
     url: str
+
+
+# Remote control events
+class RemoteRequestEvent(BaseEvent):
+    """Sent when a user requests control of the browser."""
+
+    event: EventType = EventType.REMOTE_REQUEST
+    user_id: int
+    username: str
+
+
+class RemoteChangedEvent(BaseEvent):
+    """Broadcast when the controller changes."""
+
+    event: EventType = EventType.REMOTE_CHANGED
+    controller_id: int
+    controller_username: str

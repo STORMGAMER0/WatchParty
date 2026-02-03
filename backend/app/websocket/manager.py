@@ -86,6 +86,13 @@ class ConnectionManager:
         """Check if a user is currently connected to a room."""
         return user_id in self.get_room_user_ids(room_code)
 
+    def get_connection_by_user_id(self, room_code: str, user_id: int) -> Connection | None:
+        """Find a specific user's connection in a room."""
+        for conn in self.get_room_connections(room_code):
+            if conn.user_id == user_id:
+                return conn
+        return None
+
 
 
 manager = ConnectionManager()
