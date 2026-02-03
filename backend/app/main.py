@@ -1,3 +1,10 @@
+import asyncio
+import sys
+
+# Windows requires ProactorEventLoop for subprocess support (needed by Playwright)
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

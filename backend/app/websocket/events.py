@@ -14,6 +14,19 @@ class EventType(str, Enum):
     # Chat events
     CHAT_MESSAGE = "chat_message"
 
+    # Browser events (client -> server)
+    BROWSER_NAVIGATE = "browser_navigate"
+    BROWSER_CLICK = "browser_click"
+    BROWSER_TYPE = "browser_type"
+    BROWSER_KEYPRESS = "browser_keypress"
+    BROWSER_SCROLL = "browser_scroll"
+    BROWSER_START = "browser_start"
+    BROWSER_STOP = "browser_stop"
+
+    # Browser events (server -> client)
+    BROWSER_FRAME = "browser_frame"  # Screenshot frame
+    BROWSER_URL_CHANGED = "browser_url_changed"
+
     # System events
     ERROR = "error"
     ROOM_CLOSED = "room_closed"
@@ -69,3 +82,19 @@ class RoomClosedEvent(BaseEvent):
 
     event: EventType = EventType.ROOM_CLOSED
     reason: str = "Host closed the room"
+
+
+# Browser events (server -> client)
+class BrowserFrameEvent(BaseEvent):
+    """Sent periodically with a screenshot of the browser."""
+
+    event: EventType = EventType.BROWSER_FRAME
+    frame: str  # Base64 encoded JPEG image
+    url: str  # Current page URL
+
+
+class BrowserUrlChangedEvent(BaseEvent):
+    """Sent when the browser navigates to a new URL."""
+
+    event: EventType = EventType.BROWSER_URL_CHANGED
+    url: str

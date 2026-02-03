@@ -4,6 +4,7 @@ import { useAuthStore } from '../stores/authStore';
 import { api } from '../services/api';
 import Spinner from '../components/Spinner';
 import { toast } from '../components/Toast';
+import BrowserView from '../components/BrowserView';
 
 interface Message {
   id: number;
@@ -43,6 +44,11 @@ export default function Room() {
   const [error, setError] = useState('');
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   const [isLeaving, setIsLeaving] = useState(false);
+
+  // Browser state
+  const [browserFrame, setBrowserFrame] = useState<string | null>(null);
+  const [browserUrl, setBrowserUrl] = useState('');
+  const [isBrowserRunning, setIsBrowserRunning] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -132,6 +138,14 @@ export default function Room() {
         toast.info('Room has been closed by the host');
         navigate('/dashboard');
       }
+      // Browser events
+      else if (data.event === 'browser_frame') {
+        setBrowserFrame(data.frame);
+        setBrowserUrl(data.url);
+        setIsBrowserRunning(true);  // React optimizes if value unchanged
+      } else if (data.event === 'browser_url_changed') {
+        setBrowserUrl(data.url);
+      }
     };
 
     ws.onerror = (error) => {
@@ -180,6 +194,44 @@ export default function Room() {
       navigator.clipboard.writeText(roomCode);
       toast.success('Room code copied!');
     }
+  };
+
+  // Browser control functions
+  const sendBrowserCommand = (event: string, data: Record<string, unknown> = {}) => {
+    if (!wsRef.current || connectionStatus !== 'connected') return;
+    wsRef.current.send(JSON.stringify({ event, ...data }));
+  };
+
+  const startBrowser = () => {
+    sendBrowserCommand('browser_start');
+    setIsBrowserRunning(true);
+  };
+
+  const stopBrowser = () => {
+    sendBrowserCommand('browser_stop');
+    setIsBrowserRunning(false);
+    setBrowserFrame(null);
+    setBrowserUrl('');
+  };
+
+  const navigateBrowser = (url: string) => {
+    sendBrowserCommand('browser_navigate', { url });
+  };
+
+  const clickBrowser = (x: number, y: number) => {
+    sendBrowserCommand('browser_click', { x, y });
+  };
+
+  const typeBrowser = (text: string) => {
+    sendBrowserCommand('browser_type', { text });
+  };
+
+  const keypressBrowser = (key: string) => {
+    sendBrowserCommand('browser_keypress', { key });
+  };
+
+  const scrollBrowser = (deltaX: number, deltaY: number) => {
+    sendBrowserCommand('browser_scroll', { deltaX, deltaY });
   };
 
   if (error && !room) {
@@ -284,17 +336,21 @@ export default function Room() {
 
       {/* Main Area */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Browser View (placeholder) */}
-        <div className="flex-1 bg-black flex items-center justify-center">
-          <div className="text-center">
-            <div className="w-24 h-24 bg-gray-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <svg className="w-12 h-12 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <p className="text-gray-500 text-lg">Browser View</p>
-            <p className="text-gray-600 text-sm mt-1">Coming soon...</p>
-          </div>
+        {/* Browser View */}
+        <div className="flex-1">
+          <BrowserView
+            frame={browserFrame}
+            currentUrl={browserUrl}
+            isHost={isHost}
+            isRunning={isBrowserRunning}
+            onStart={startBrowser}
+            onStop={stopBrowser}
+            onNavigate={navigateBrowser}
+            onClick={clickBrowser}
+            onType={typeBrowser}
+            onKeyPress={keypressBrowser}
+            onScroll={scrollBrowser}
+          />
         </div>
 
         {/* Sidebar */}

@@ -1,20 +1,25 @@
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+import asyncio
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.browser.manager import browser_manager
 from app.core.security import decode_token
-from app.db.session import get_db
 from app.models.message import Message
 from app.services.auth_service import AuthService
 from app.services.room_service import RoomService
 from app.websocket.events import (
+    BrowserFrameEvent,
     ChatMessageEvent,
     ErrorEvent,
     EventType,
-    RoomClosedEvent,
     UserJoinedEvent,
     UserLeftEvent,
 )
 from app.websocket.manager import manager
+
+# Track screenshot streaming tasks per room
+_screenshot_tasks: dict[str, asyncio.Task] = {}
 
 router = APIRouter()
 
@@ -107,6 +112,9 @@ async def handle_message(db: AsyncSession, connection, room, data: dict):
     """Handle incoming WebSocket messages."""
     event_type = data.get("event")
 
+    # ─────────────────────────────────────────────────────────────
+    # Chat Events
+    # ─────────────────────────────────────────────────────────────
     if event_type == EventType.CHAT_MESSAGE:
         content = data.get("content", "").strip()
 
@@ -141,9 +149,143 @@ async def handle_message(db: AsyncSession, connection, room, data: dict):
             connection.room_code, chat_event.model_dump(mode="json")
         )
 
+    # ─────────────────────────────────────────────────────────────
+    # Browser Events
+    # ─────────────────────────────────────────────────────────────
+    elif event_type == EventType.BROWSER_START or event_type == "browser_start":
+        print(f"[DEBUG] Received browser_start from user {connection.user_id}")
+        # Only host can start the browser
+        if connection.user_id != room.host_id:
+            error = ErrorEvent(message="Only the host can start the browser")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Create browser session and start screenshot streaming
+        await browser_manager.create_session(connection.room_code)
+        start_screenshot_stream(connection.room_code)
+
+    elif event_type == EventType.BROWSER_STOP:
+        # Only host can stop the browser
+        if connection.user_id != room.host_id:
+            error = ErrorEvent(message="Only the host can stop the browser")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Stop screenshot streaming and close browser
+        stop_screenshot_stream(connection.room_code)
+        await browser_manager.close_session(connection.room_code)
+
+    elif event_type == EventType.BROWSER_NAVIGATE:
+        session = browser_manager.get_session(connection.room_code)
+        if not session:
+            error = ErrorEvent(message="Browser not started")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        url = data.get("url", "").strip()
+        if url:
+            await session.navigate(url)
+
+    elif event_type == EventType.BROWSER_CLICK:
+        session = browser_manager.get_session(connection.room_code)
+        if not session:
+            return
+
+        x = data.get("x", 0)
+        y = data.get("y", 0)
+        await session.click(int(x), int(y))
+
+    elif event_type == EventType.BROWSER_TYPE:
+        session = browser_manager.get_session(connection.room_code)
+        if not session:
+            return
+
+        text = data.get("text", "")
+        if text:
+            await session.type_text(text)
+
+    elif event_type == EventType.BROWSER_KEYPRESS:
+        session = browser_manager.get_session(connection.room_code)
+        if not session:
+            return
+
+        key = data.get("key", "")
+        if key:
+            await session.press_key(key)
+
+    elif event_type == EventType.BROWSER_SCROLL:
+        session = browser_manager.get_session(connection.room_code)
+        if not session:
+            return
+
+        delta_x = data.get("deltaX", 0)
+        delta_y = data.get("deltaY", 0)
+        await session.scroll(int(delta_x), int(delta_y))
+
     else:
         error = ErrorEvent(message=f"Unknown event type: {event_type}")
         await manager.send_personal(connection, error.model_dump(mode="json"))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Screenshot Streaming
+# ─────────────────────────────────────────────────────────────────────────────
+
+def start_screenshot_stream(room_code: str) -> None:
+    """Start sending screenshots to all clients in a room."""
+    # Don't start if already running
+    if room_code in _screenshot_tasks:
+        return
+
+    task = asyncio.create_task(_screenshot_loop(room_code))
+    _screenshot_tasks[room_code] = task
+    print(f"[Screenshot] Started streaming for room {room_code}")
+
+
+def stop_screenshot_stream(room_code: str) -> None:
+    """Stop sending screenshots for a room."""
+    task = _screenshot_tasks.pop(room_code, None)
+    if task:
+        task.cancel()
+        print(f"[Screenshot] Stopped streaming for room {room_code}")
+
+
+async def _screenshot_loop(room_code: str) -> None:
+    """
+    Continuously capture and broadcast screenshots.
+
+    Runs every 100ms (10 FPS) to balance smoothness and bandwidth.
+    """
+    print(f"[Screenshot] Loop started for room {room_code}")
+    frame_count = 0
+    try:
+        while True:
+            session = browser_manager.get_session(room_code)
+            if not session or not session.is_running:
+                print(f"[Screenshot] Session not found or not running for room {room_code}")
+                break
+
+            try:
+                # Capture screenshot
+                frame = await session.screenshot()
+                url = await session.get_current_url()
+                frame_count += 1
+                if frame_count % 50 == 1:  # Log every 50 frames
+                    print(f"[Screenshot] Sent frame {frame_count} for room {room_code}")
+
+                # Broadcast to all clients in room
+                frame_event = BrowserFrameEvent(frame=frame, url=url)
+                await manager.broadcast_to_room(
+                    room_code, frame_event.model_dump(mode="json")
+                )
+            except Exception as e:
+                print(f"[Screenshot] Error capturing frame: {e}")
+
+            # Wait before next frame (100ms = 10 FPS)
+            await asyncio.sleep(0.1)
+
+    except asyncio.CancelledError:
+        pass  # Task was cancelled, exit gracefully
 
 
 # Import for the route file
