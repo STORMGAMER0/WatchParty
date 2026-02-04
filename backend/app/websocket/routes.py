@@ -405,10 +405,12 @@ async def _screenshot_loop(room_code: str) -> None:
     """
     Continuously capture and broadcast screenshots.
 
-    Runs every 100ms (10 FPS) to balance smoothness and bandwidth.
+    Runs every ~42ms (24 FPS) for smoother video playback.
     """
-    print(f"[Screenshot] Loop started for room {room_code}")
+    import time
+    print(f"[Screenshot] Loop started for room {room_code} at 24 FPS")
     frame_count = 0
+    total_capture_time = 0
     try:
         while True:
             session = browser_manager.get_session(room_code)
@@ -417,12 +419,20 @@ async def _screenshot_loop(room_code: str) -> None:
                 break
 
             try:
-                # Capture screenshot
+                # Capture screenshot and measure time
+                start_time = time.time()
                 frame = await session.screenshot()
                 url = await session.get_current_url()
+                capture_time = (time.time() - start_time) * 1000  # ms
+
                 frame_count += 1
-                if frame_count % 50 == 1:  # Log every 50 frames
-                    print(f"[Screenshot] Sent frame {frame_count} for room {room_code}")
+                total_capture_time += capture_time
+
+                if frame_count % 120 == 0:  # Log every 120 frames (~5 seconds at target FPS)
+                    avg_capture = total_capture_time / 120
+                    actual_fps = 1000 / (avg_capture + 42)  # capture time + sleep time
+                    print(f"[Screenshot] Frame {frame_count} | Avg capture: {avg_capture:.1f}ms | Actual FPS: ~{actual_fps:.1f}")
+                    total_capture_time = 0
 
                 # Broadcast to all clients in room
                 frame_event = BrowserFrameEvent(frame=frame, url=url)
@@ -432,8 +442,8 @@ async def _screenshot_loop(room_code: str) -> None:
             except Exception as e:
                 print(f"[Screenshot] Error capturing frame: {e}")
 
-            # Wait before next frame (100ms = 10 FPS)
-            await asyncio.sleep(0.1)
+            # Wait before next frame (~42ms = 24 FPS)
+            await asyncio.sleep(0.042)
 
     except asyncio.CancelledError:
         pass  # Task was cancelled, exit gracefully
