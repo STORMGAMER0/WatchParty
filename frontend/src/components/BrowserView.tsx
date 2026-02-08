@@ -68,18 +68,23 @@ export default function BrowserView({
   const handleClick = (e: React.MouseEvent<HTMLImageElement>) => {
     if (!imageRef.current || !hasControl) return;
 
-    // Get click position relative to the image
+    // Get click position relative to the displayed image element
     const rect = imageRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
 
-    // Get displayed image size
+    // Get displayed size (how big the image appears on screen)
     const displayWidth = rect.width;
     const displayHeight = rect.height;
 
-    // Convert to actual browser coordinates
-    const actualX = Math.round((clickX / displayWidth) * BROWSER_WIDTH);
-    const actualY = Math.round((clickY / displayHeight) * BROWSER_HEIGHT);
+    // Get actual image dimensions (the real pixel size of the captured image)
+    // This accounts for server-side DPI scaling automatically
+    const imageWidth = imageRef.current.naturalWidth || BROWSER_WIDTH;
+    const imageHeight = imageRef.current.naturalHeight || BROWSER_HEIGHT;
+
+    // Convert click position to actual image pixel coordinates
+    const actualX = Math.round((clickX / displayWidth) * imageWidth);
+    const actualY = Math.round((clickY / displayHeight) * imageHeight);
 
     onClick(actualX, actualY);
   };

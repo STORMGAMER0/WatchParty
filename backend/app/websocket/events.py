@@ -25,6 +25,7 @@ class EventType(str, Enum):
 
     # Browser events (server -> client)
     BROWSER_FRAME = "browser_frame"  # Screenshot frame
+    BROWSER_AUDIO = "browser_audio"  # Audio chunk
     BROWSER_URL_CHANGED = "browser_url_changed"
 
     # Remote control events
@@ -97,6 +98,13 @@ class BrowserFrameEvent(BaseEvent):
     event: EventType = EventType.BROWSER_FRAME
     frame: str  # Base64 encoded JPEG image
     url: str  # Current page URL
+
+
+class BrowserAudioEvent(BaseEvent):
+    """Sent periodically with audio data from the browser."""
+
+    event: EventType = EventType.BROWSER_AUDIO
+    audio: str  # Base64 encoded MP3 audio chunk
 
 
 class BrowserUrlChangedEvent(BaseEvent):

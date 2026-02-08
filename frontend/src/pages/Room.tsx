@@ -5,6 +5,7 @@ import { api } from '../services/api';
 import Spinner from '../components/Spinner';
 import { toast } from '../components/Toast';
 import BrowserView from '../components/BrowserView';
+import { useAudioPlayer } from '../hooks/useAudioPlayer';
 
 interface Message {
   id: number;
@@ -56,6 +57,9 @@ export default function Room() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Audio player for browser audio streaming
+  const { addChunk: addAudioChunk, reset: resetAudio } = useAudioPlayer();
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
@@ -147,6 +151,9 @@ export default function Room() {
         setBrowserFrame(data.frame);
         setBrowserUrl(data.url);
         setIsBrowserRunning(true);
+      } else if (data.event === 'browser_audio') {
+        // Add audio chunk to player
+        addAudioChunk(data.audio);
       } else if (data.event === 'browser_url_changed') {
         setBrowserUrl(data.url);
       }
@@ -181,7 +188,7 @@ export default function Room() {
     return () => {
       ws.close();
     };
-  }, [roomCode, navigate]);
+  }, [roomCode, navigate, addAudioChunk]);
 
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
@@ -238,6 +245,8 @@ export default function Room() {
     // Clear controller state
     setControllerId(null);
     setControllerUsername('');
+    // Reset audio player
+    resetAudio();
   };
 
   const navigateBrowser = (url: string) => {

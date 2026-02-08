@@ -3,12 +3,14 @@ import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.browser.audio import audio_capture
 from app.browser.manager import browser_manager
 from app.core.security import decode_token
 from app.models.message import Message
 from app.services.auth_service import AuthService
 from app.services.room_service import RoomService
 from app.websocket.events import (
+    BrowserAudioEvent,
     BrowserFrameEvent,
     ChatMessageEvent,
     ErrorEvent,
@@ -22,6 +24,10 @@ from app.websocket.manager import manager
 
 # Track screenshot streaming tasks per room
 _screenshot_tasks: dict[str, asyncio.Task] = {}
+# Track audio streaming tasks per room
+_audio_tasks: dict[str, asyncio.Task] = {}
+# Track which room is currently using audio (only one can use VB-Cable at a time)
+_audio_room: str | None = None
 
 router = APIRouter()
 
@@ -162,9 +168,10 @@ async def handle_message(db: AsyncSession, connection, room, data: dict):
             await manager.send_personal(connection, error.model_dump(mode="json"))
             return
 
-        # Create browser session and start screenshot streaming
+        # Create browser session and start screenshot + audio streaming
         await browser_manager.create_session(connection.room_code)
         start_screenshot_stream(connection.room_code)
+        start_audio_stream(connection.room_code)
 
         # Host starts with control
         browser_manager.set_controller(connection.room_code, connection.user_id, connection.username)
@@ -183,8 +190,9 @@ async def handle_message(db: AsyncSession, connection, room, data: dict):
             await manager.send_personal(connection, error.model_dump(mode="json"))
             return
 
-        # Stop screenshot streaming and close browser
+        # Stop screenshot + audio streaming and close browser
         stop_screenshot_stream(connection.room_code)
+        stop_audio_stream(connection.room_code)
         await browser_manager.close_session(connection.room_code)
         browser_manager.clear_controller(connection.room_code)
 
@@ -220,6 +228,9 @@ async def handle_message(db: AsyncSession, connection, room, data: dict):
 
         x = data.get("x", 0)
         y = data.get("y", 0)
+
+        # With Playwright screenshots, coordinates map directly to viewport
+        # (image is 1280x720, viewport is 1280x720 - no scaling needed)
         await session.click(int(x), int(y))
 
     elif event_type == EventType.BROWSER_TYPE:
@@ -379,22 +390,24 @@ async def handle_message(db: AsyncSession, connection, room, data: dict):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Screenshot Streaming
+# Screenshot Streaming (using Playwright's native CDP-based screenshot)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def start_screenshot_stream(room_code: str) -> None:
-    """Start sending screenshots to all clients in a room."""
+    """Start sending screenshots to all clients in a room using Playwright."""
     # Don't start if already running
     if room_code in _screenshot_tasks:
         return
 
+    # Start the broadcast loop - Playwright's screenshot works without extra setup
     task = asyncio.create_task(_screenshot_loop(room_code))
     _screenshot_tasks[room_code] = task
-    print(f"[Screenshot] Started streaming for room {room_code}")
+    print(f"[Screenshot] Started Playwright screenshot streaming for room {room_code}")
 
 
 def stop_screenshot_stream(room_code: str) -> None:
     """Stop sending screenshots for a room."""
+    # Stop the broadcast task
     task = _screenshot_tasks.pop(room_code, None)
     if task:
         task.cancel()
@@ -403,47 +416,125 @@ def stop_screenshot_stream(room_code: str) -> None:
 
 async def _screenshot_loop(room_code: str) -> None:
     """
-    Continuously capture and broadcast screenshots.
+    Continuously capture and broadcast screenshots using Playwright.
 
-    Runs every ~42ms (24 FPS) for smoother video playback.
+    Playwright's screenshot() uses Chrome DevTools Protocol (CDP) to capture
+    the page content directly from Chrome's renderer - this works regardless
+    of window position (off-screen, minimized, etc.) and avoids Windows API
+    rendering artifacts.
+
+    Target ~20 FPS for smooth video while balancing CPU/network load.
     """
-    import time
-    print(f"[Screenshot] Loop started for room {room_code} at 24 FPS")
+    print(f"[Screenshot] Broadcast loop started for room {room_code}")
     frame_count = 0
-    total_capture_time = 0
+    target_fps = 20
+    frame_interval = 1.0 / target_fps
+
     try:
         while True:
+            loop_start = asyncio.get_event_loop().time()
+
+            # Check if browser session is still running
             session = browser_manager.get_session(room_code)
             if not session or not session.is_running:
-                print(f"[Screenshot] Session not found or not running for room {room_code}")
+                print(f"[Screenshot] Session not running for room {room_code}")
                 break
 
             try:
-                # Capture screenshot and measure time
-                start_time = time.time()
+                # Use Playwright's native screenshot (CDP-based, very reliable)
                 frame = await session.screenshot()
                 url = await session.get_current_url()
-                capture_time = (time.time() - start_time) * 1000  # ms
 
                 frame_count += 1
-                total_capture_time += capture_time
-
-                if frame_count % 120 == 0:  # Log every 120 frames (~5 seconds at target FPS)
-                    avg_capture = total_capture_time / 120
-                    actual_fps = 1000 / (avg_capture + 42)  # capture time + sleep time
-                    print(f"[Screenshot] Frame {frame_count} | Avg capture: {avg_capture:.1f}ms | Actual FPS: ~{actual_fps:.1f}")
-                    total_capture_time = 0
 
                 # Broadcast to all clients in room
                 frame_event = BrowserFrameEvent(frame=frame, url=url)
                 await manager.broadcast_to_room(
                     room_code, frame_event.model_dump(mode="json")
                 )
-            except Exception as e:
-                print(f"[Screenshot] Error capturing frame: {e}")
 
-            # Wait before next frame (~42ms = 24 FPS)
-            await asyncio.sleep(0.042)
+                if frame_count % 100 == 0:
+                    print(f"[Screenshot] Broadcast {frame_count} frames for room {room_code}")
+
+            except Exception as e:
+                print(f"[Screenshot] Error: {e}")
+
+            # Maintain target FPS
+            elapsed = asyncio.get_event_loop().time() - loop_start
+            sleep_time = frame_interval - elapsed
+            if sleep_time > 0:
+                await asyncio.sleep(sleep_time)
+            else:
+                # If we're behind, yield briefly to prevent blocking
+                await asyncio.sleep(0.001)
+
+    except asyncio.CancelledError:
+        pass  # Task was cancelled, exit gracefully
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Audio Streaming
+# ─────────────────────────────────────────────────────────────────────────────
+
+def start_audio_stream(room_code: str) -> None:
+    """Start sending audio to all clients in a room."""
+    global _audio_room
+
+    # Only one room can use VB-Cable audio at a time
+    if _audio_room is not None:
+        print(f"[Audio] Cannot start for {room_code} - audio already in use by {_audio_room}")
+        return
+
+    # Don't start if already running for this room
+    if room_code in _audio_tasks:
+        return
+
+    _audio_room = room_code
+    audio_capture.start()
+
+    task = asyncio.create_task(_audio_loop(room_code))
+    _audio_tasks[room_code] = task
+    print(f"[Audio] Started streaming for room {room_code}")
+
+
+def stop_audio_stream(room_code: str) -> None:
+    """Stop sending audio for a room."""
+    global _audio_room
+
+    task = _audio_tasks.pop(room_code, None)
+    if task:
+        task.cancel()
+
+    if _audio_room == room_code:
+        audio_capture.stop()
+        _audio_room = None
+        print(f"[Audio] Stopped streaming for room {room_code}")
+
+
+async def _audio_loop(room_code: str) -> None:
+    """
+    Continuously capture and broadcast audio chunks.
+    """
+    print(f"[Audio] Loop started for room {room_code}")
+    chunk_count = 0
+
+    try:
+        async for chunk in audio_capture.stream_chunks(chunk_size=4096):
+            # Check if session is still active
+            session = browser_manager.get_session(room_code)
+            if not session or not session.is_running:
+                print(f"[Audio] Session ended for room {room_code}")
+                break
+
+            chunk_count += 1
+            if chunk_count % 100 == 0:
+                print(f"[Audio] Sent {chunk_count} chunks for room {room_code}")
+
+            # Broadcast audio to all clients in room
+            audio_event = BrowserAudioEvent(audio=chunk)
+            await manager.broadcast_to_room(
+                room_code, audio_event.model_dump(mode="json")
+            )
 
     except asyncio.CancelledError:
         pass  # Task was cancelled, exit gracefully
