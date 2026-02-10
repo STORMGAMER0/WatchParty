@@ -512,6 +512,7 @@ export default function Room() {
                   </svg>
                 </button>
               </div>
+              <p className="text-gray-500 text-xs mt-2">Press <kbd className="px-1.5 py-0.5 bg-gray-700 rounded text-gray-400">Enter</kbd> to send</p>
             </form>
           </div>
         </div>
