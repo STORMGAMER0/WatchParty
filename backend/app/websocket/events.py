@@ -34,6 +34,13 @@ class EventType(str, Enum):
     REMOTE_TAKE = "remote_take"  # Host takes control back
     REMOTE_CHANGED = "remote_changed"  # Broadcast: controller changed
 
+    # Voice chat events (WebRTC signaling)
+    VOICE_JOIN = "voice_join"  # User wants to join voice chat
+    VOICE_LEAVE = "voice_leave"  # User leaves voice chat
+    VOICE_OFFER = "voice_offer"  # SDP offer (peer A -> peer B)
+    VOICE_ANSWER = "voice_answer"  # SDP answer (peer B -> peer A)
+    VOICE_ICE_CANDIDATE = "voice_ice_candidate"  # ICE candidate exchange
+
     # System events
     ERROR = "error"
     ROOM_CLOSED = "room_closed"
@@ -129,3 +136,70 @@ class RemoteChangedEvent(BaseEvent):
     event: EventType = EventType.REMOTE_CHANGED
     controller_id: int
     controller_username: str
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Voice Chat Events (WebRTC Signaling)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class VoiceJoinEvent(BaseEvent):
+    """Broadcast when a user joins voice chat.
+
+    All other users in voice chat will receive this and should
+    create a new RTCPeerConnection + send an offer to this user.
+    """
+
+    event: EventType = EventType.VOICE_JOIN
+    user_id: int
+    username: str
+
+
+class VoiceLeaveEvent(BaseEvent):
+    """Broadcast when a user leaves voice chat.
+
+    All other users should close their RTCPeerConnection to this user.
+    """
+
+    event: EventType = EventType.VOICE_LEAVE
+    user_id: int
+    username: str
+
+
+class VoiceOfferEvent(BaseEvent):
+    """Sent from one peer to another with an SDP offer.
+
+    Contains the WebRTC session description that describes
+    what media the sender wants to transmit (audio codec, etc).
+    """
+
+    event: EventType = EventType.VOICE_OFFER
+    from_user_id: int
+    to_user_id: int
+    sdp: str  # The Session Description Protocol offer
+
+
+class VoiceAnswerEvent(BaseEvent):
+    """Sent from one peer to another with an SDP answer.
+
+    The receiver of an offer responds with this answer,
+    confirming they accept the proposed media session.
+    """
+
+    event: EventType = EventType.VOICE_ANSWER
+    from_user_id: int
+    to_user_id: int
+    sdp: str  # The Session Description Protocol answer
+
+
+class VoiceIceCandidateEvent(BaseEvent):
+    """Sent between peers to exchange ICE candidates.
+
+    ICE candidates are potential network paths (IP:port combinations)
+    that peers can use to connect directly to each other.
+    """
+
+    event: EventType = EventType.VOICE_ICE_CANDIDATE
+    from_user_id: int
+    to_user_id: int
+    candidate: str  # The ICE candidate (JSON stringified)

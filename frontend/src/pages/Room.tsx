@@ -5,7 +5,9 @@ import { api } from '../services/api';
 import Spinner from '../components/Spinner';
 import { toast } from '../components/Toast';
 import BrowserView from '../components/BrowserView';
+import VoiceChat from '../components/VoiceChat';
 import { useAudioPlayer } from '../hooks/useAudioPlayer';
+import { useVoiceChat } from '../hooks/useVoiceChat';
 
 interface Message {
   id: number;
@@ -60,6 +62,20 @@ export default function Room() {
 
   // Audio player for browser audio streaming
   const { addChunk: addAudioChunk, reset: resetAudio } = useAudioPlayer();
+
+  // Voice chat (WebRTC)
+  const {
+    isInVoice,
+    isMuted,
+    joinVoice,
+    leaveVoice,
+    toggleMute,
+    handleVoiceMessage,
+  } = useVoiceChat({
+    userId: user?.id || 0,
+    wsRef,
+    onError: (message) => toast.error(message),
+  });
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
@@ -171,6 +187,10 @@ export default function Room() {
           toast.info(`${data.username} is requesting control`);
         }
       }
+      // Voice chat events
+      else if (data.event?.startsWith('voice_')) {
+        handleVoiceMessage(data);
+      }
     };
 
     ws.onerror = (error) => {
@@ -188,7 +208,7 @@ export default function Room() {
     return () => {
       ws.close();
     };
-  }, [roomCode, navigate, addAudioChunk]);
+  }, [roomCode, navigate, addAudioChunk, handleVoiceMessage]);
 
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
@@ -206,6 +226,10 @@ export default function Room() {
   const leaveRoom = async () => {
     setIsLeaving(true);
     try {
+      // Leave voice chat if we're in it
+      if (isInVoice) {
+        leaveVoice();
+      }
       await api.post(`/rooms/${roomCode}/leave`);
       navigate('/dashboard');
     } catch (err: any) {
@@ -412,6 +436,15 @@ export default function Room() {
 
         {/* Sidebar */}
         <div className="w-80 bg-gray-800/50 backdrop-blur-sm flex flex-col border-l border-gray-700/50">
+          {/* Voice Chat */}
+          <VoiceChat
+            isInVoice={isInVoice}
+            isMuted={isMuted}
+            onJoin={joinVoice}
+            onLeave={leaveVoice}
+            onToggleMute={toggleMute}
+          />
+
           {/* Participants */}
           <div className="p-4 border-b border-gray-700/50">
             <h2 className="font-semibold text-white mb-3 flex items-center gap-2">

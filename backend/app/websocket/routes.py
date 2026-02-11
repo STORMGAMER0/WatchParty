@@ -19,6 +19,11 @@ from app.websocket.events import (
     RemoteRequestEvent,
     UserJoinedEvent,
     UserLeftEvent,
+    VoiceAnswerEvent,
+    VoiceIceCandidateEvent,
+    VoiceJoinEvent,
+    VoiceLeaveEvent,
+    VoiceOfferEvent,
 )
 from app.websocket.manager import manager
 
@@ -382,6 +387,121 @@ async def handle_message(db: AsyncSession, connection, room, data: dict):
         )
         await manager.broadcast_to_room(
             connection.room_code, remote_event.model_dump(mode="json")
+        )
+
+    # ─────────────────────────────────────────────────────────────
+    # Voice Chat Events (WebRTC Signaling)
+    # ─────────────────────────────────────────────────────────────
+    elif event_type == EventType.VOICE_JOIN:
+        # User wants to join voice chat - broadcast to everyone in room
+        # so they can create peer connections
+        voice_join_event = VoiceJoinEvent(
+            user_id=connection.user_id,
+            username=connection.username,
+        )
+        await manager.broadcast_to_room(
+            connection.room_code, voice_join_event.model_dump(mode="json")
+        )
+
+    elif event_type == EventType.VOICE_LEAVE:
+        # User leaves voice chat - broadcast so others can clean up connections
+        voice_leave_event = VoiceLeaveEvent(
+            user_id=connection.user_id,
+            username=connection.username,
+        )
+        await manager.broadcast_to_room(
+            connection.room_code, voice_leave_event.model_dump(mode="json")
+        )
+
+    elif event_type == EventType.VOICE_OFFER:
+        # Forward SDP offer to specific user
+        target_user_id = data.get("to_user_id")
+        sdp = data.get("sdp")
+
+        if not target_user_id or not sdp:
+            error = ErrorEvent(message="Missing to_user_id or sdp in voice_offer")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Find target user's connection
+        target_connection = manager.get_connection_by_user_id(
+            connection.room_code, target_user_id
+        )
+
+        if not target_connection:
+            error = ErrorEvent(message="Target user not found in room")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Forward the offer to the target user
+        voice_offer_event = VoiceOfferEvent(
+            from_user_id=connection.user_id,
+            to_user_id=target_user_id,
+            sdp=sdp,
+        )
+        await manager.send_personal(
+            target_connection, voice_offer_event.model_dump(mode="json")
+        )
+
+    elif event_type == EventType.VOICE_ANSWER:
+        # Forward SDP answer to specific user
+        target_user_id = data.get("to_user_id")
+        sdp = data.get("sdp")
+
+        if not target_user_id or not sdp:
+            error = ErrorEvent(message="Missing to_user_id or sdp in voice_answer")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Find target user's connection
+        target_connection = manager.get_connection_by_user_id(
+            connection.room_code, target_user_id
+        )
+
+        if not target_connection:
+            error = ErrorEvent(message="Target user not found in room")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # Forward the answer to the target user
+        voice_answer_event = VoiceAnswerEvent(
+            from_user_id=connection.user_id,
+            to_user_id=target_user_id,
+            sdp=sdp,
+        )
+        await manager.send_personal(
+            target_connection, voice_answer_event.model_dump(mode="json")
+        )
+
+    elif event_type == EventType.VOICE_ICE_CANDIDATE:
+        # Forward ICE candidate to specific user
+        target_user_id = data.get("to_user_id")
+        candidate = data.get("candidate")
+
+        if not target_user_id:
+            error = ErrorEvent(message="Missing to_user_id in voice_ice_candidate")
+            await manager.send_personal(connection, error.model_dump(mode="json"))
+            return
+
+        # candidate can be null (signals end of candidates), so we don't validate it
+
+        # Find target user's connection
+        target_connection = manager.get_connection_by_user_id(
+            connection.room_code, target_user_id
+        )
+
+        if not target_connection:
+            # Target might have disconnected, silently ignore
+            return
+
+        # Forward the ICE candidate to the target user
+        voice_ice_event = VoiceIceCandidateEvent(
+            from_user_id=connection.user_id,
+            to_user_id=target_user_id,
+            candidate=candidate or "",
+        )
+        await manager.send_personal(
+            target_connection, voice_ice_event.model_dump(mode="json")
         )
 
     else:
