@@ -77,6 +77,10 @@ export default function Room() {
     onError: (message) => toast.error(message),
   });
 
+  // Store voice message handler in a ref to avoid WebSocket reconnection
+  const voiceMessageHandlerRef = useRef(handleVoiceMessage);
+  voiceMessageHandlerRef.current = handleVoiceMessage;
+
   // Scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -189,7 +193,7 @@ export default function Room() {
       }
       // Voice chat events
       else if (data.event?.startsWith('voice_')) {
-        handleVoiceMessage(data);
+        voiceMessageHandlerRef.current(data);
       }
     };
 
@@ -208,7 +212,7 @@ export default function Room() {
     return () => {
       ws.close();
     };
-  }, [roomCode, navigate, addAudioChunk, handleVoiceMessage]);
+  }, [roomCode, navigate, addAudioChunk]);
 
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
