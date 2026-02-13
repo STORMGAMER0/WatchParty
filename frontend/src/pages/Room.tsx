@@ -5,7 +5,7 @@ import { api } from '../services/api';
 import Spinner from '../components/Spinner';
 import { toast } from '../components/Toast';
 import BrowserView from '../components/BrowserView';
-import VoiceChat from '../components/VoiceChat';
+import ChatTabs from '../components/ChatTabs';
 import { useAudioPlayer } from '../hooks/useAudioPlayer';
 import { useVoiceChat } from '../hooks/useVoiceChat';
 
@@ -440,15 +440,6 @@ export default function Room() {
 
         {/* Sidebar */}
         <div className="w-80 bg-gray-800/50 backdrop-blur-sm flex flex-col border-l border-gray-700/50">
-          {/* Voice Chat */}
-          <VoiceChat
-            isInVoice={isInVoice}
-            isMuted={isMuted}
-            onJoin={joinVoice}
-            onLeave={leaveVoice}
-            onToggleMute={toggleMute}
-          />
-
           {/* Participants */}
           <div className="p-4 border-b border-gray-700/50">
             <h2 className="font-semibold text-white mb-3 flex items-center gap-2">
@@ -487,71 +478,71 @@ export default function Room() {
             </div>
           </div>
 
-          {/* Chat */}
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="p-4 pb-2 border-b border-gray-700/50">
-              <h2 className="font-semibold text-white flex items-center gap-2">
-                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-                Chat
-              </h2>
-            </div>
-
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {messages.length === 0 ? (
-                <p className="text-gray-500 text-sm text-center py-8">No messages yet. Say hi!</p>
-              ) : (
-                messages.map((msg) => (
-                  msg.isSystem ? (
-                    <div key={msg.id} className="flex items-center gap-2 py-1">
-                      <div className="flex-1 h-px bg-gray-700"></div>
-                      <span className="text-xs text-gray-500 px-2">{msg.content}</span>
-                      <div className="flex-1 h-px bg-gray-700"></div>
-                    </div>
-                  ) : (
-                    <div key={msg.id} className="group">
-                      <div className="flex items-baseline gap-2">
-                        <span className={`font-medium text-sm ${msg.user_id === user?.id ? 'text-blue-400' : 'text-purple-400'}`}>
-                          {msg.username}
-                        </span>
-                        <span className="text-gray-600 text-xs opacity-0 group-hover:opacity-100 transition">
-                          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
+          {/* Tabbed Chat/Voice */}
+          <ChatTabs
+            isInVoice={isInVoice}
+            isMuted={isMuted}
+            onJoinVoice={joinVoice}
+            onLeaveVoice={leaveVoice}
+            onToggleMute={toggleMute}
+          >
+            {/* Text Chat Content */}
+            <>
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {messages.length === 0 ? (
+                  <p className="text-gray-500 text-sm text-center py-8">No messages yet. Say hi!</p>
+                ) : (
+                  messages.map((msg) => (
+                    msg.isSystem ? (
+                      <div key={msg.id} className="flex items-center gap-2 py-1">
+                        <div className="flex-1 h-px bg-gray-700"></div>
+                        <span className="text-xs text-gray-500 px-2">{msg.content}</span>
+                        <div className="flex-1 h-px bg-gray-700"></div>
                       </div>
-                      <p className="text-gray-300 text-sm mt-0.5 break-words">{msg.content}</p>
-                    </div>
-                  )
-                ))
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Message Input */}
-            <form onSubmit={sendMessage} className="p-4 border-t border-gray-700/50">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  placeholder={connectionStatus === 'connected' ? 'Type a message...' : 'Reconnecting...'}
-                  disabled={connectionStatus !== 'connected'}
-                  className="flex-1 px-4 py-2.5 bg-gray-900/50 border border-gray-600 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition disabled:opacity-50"
-                />
-                <button
-                  type="submit"
-                  disabled={connectionStatus !== 'connected' || !newMessage.trim()}
-                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 disabled:cursor-not-allowed rounded-lg text-white transition"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                  </svg>
-                </button>
+                    ) : (
+                      <div key={msg.id} className="group">
+                        <div className="flex items-baseline gap-2">
+                          <span className={`font-medium text-sm ${msg.user_id === user?.id ? 'text-blue-400' : 'text-purple-400'}`}>
+                            {msg.username}
+                          </span>
+                          <span className="text-gray-600 text-xs opacity-0 group-hover:opacity-100 transition">
+                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <p className="text-gray-300 text-sm mt-0.5 break-words">{msg.content}</p>
+                      </div>
+                    )
+                  ))
+                )}
+                <div ref={messagesEndRef} />
               </div>
-              <p className="text-gray-500 text-xs mt-2">Press <kbd className="px-1.5 py-0.5 bg-gray-700 rounded text-gray-400">Enter</kbd> to send</p>
-            </form>
-          </div>
+
+              {/* Message Input */}
+              <form onSubmit={sendMessage} className="p-4 border-t border-gray-700/50">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder={connectionStatus === 'connected' ? 'Type a message...' : 'Reconnecting...'}
+                    disabled={connectionStatus !== 'connected'}
+                    className="flex-1 px-4 py-2.5 bg-gray-900/50 border border-gray-600 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition disabled:opacity-50"
+                  />
+                  <button
+                    type="submit"
+                    disabled={connectionStatus !== 'connected' || !newMessage.trim()}
+                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 disabled:cursor-not-allowed rounded-lg text-white transition"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                  </button>
+                </div>
+                <p className="text-gray-500 text-xs mt-2">Press <kbd className="px-1.5 py-0.5 bg-gray-700 rounded text-gray-400">Enter</kbd> to send</p>
+              </form>
+            </>
+          </ChatTabs>
         </div>
       </div>
     </div>
