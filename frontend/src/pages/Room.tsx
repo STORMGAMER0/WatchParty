@@ -81,6 +81,12 @@ export default function Room() {
   const voiceMessageHandlerRef = useRef(handleVoiceMessage);
   voiceMessageHandlerRef.current = handleVoiceMessage;
 
+  // Track if user is host (using ref to avoid stale closure in WebSocket handler)
+  const isHostRef = useRef(false);
+  useEffect(() => {
+    isHostRef.current = room?.host_id === user?.id;
+  }, [room, user]);
+
   // Scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -172,8 +178,10 @@ export default function Room() {
         setBrowserUrl(data.url);
         setIsBrowserRunning(true);
       } else if (data.event === 'browser_audio') {
-        // Add audio chunk to player
-        addAudioChunk(data.audio);
+        // Only play audio for non-host participants (host hears it locally via Voicemeeter)
+        if (!isHostRef.current) {
+          addAudioChunk(data.audio);
+        }
       } else if (data.event === 'browser_url_changed') {
         setBrowserUrl(data.url);
       }

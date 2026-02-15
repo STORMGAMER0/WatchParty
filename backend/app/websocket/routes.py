@@ -404,6 +404,7 @@ async def handle_message(db: AsyncSession, connection, room, data: dict):
         )
 
     elif event_type == EventType.VOICE_LEAVE:
+        
         # User leaves voice chat - broadcast so others can clean up connections
         voice_leave_event = VoiceLeaveEvent(
             user_id=connection.user_id,

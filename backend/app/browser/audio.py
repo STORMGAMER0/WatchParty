@@ -1,5 +1,5 @@
 """
-AudioCapture - Captures audio from VB-Cable using FFmpeg.
+AudioCapture - Captures audio from Voicemeeter using FFmpeg.
 
 Streams audio chunks that can be sent to clients via WebSocket.
 """
@@ -12,14 +12,14 @@ from typing import AsyncGenerator, Optional
 
 class AudioCapture:
     """
-    Captures audio from VB-Cable Output using FFmpeg.
+    Captures audio from Voicemeeter Out B1 using FFmpeg.
 
-    Audio is captured as Opus-encoded WebM chunks for efficient
+    Audio is captured as MP3 chunks for efficient
     streaming to web clients.
     """
 
     # VB-Cable device name as shown by FFmpeg
-    DEVICE_NAME = "CABLE Output (VB-Audio Virtual Cable)"
+    DEVICE_NAME = "Voicemeeter Out B1 (VB-Audio Voicemeeter VAIO)"
 
     def __init__(self):
         self._process: Optional[subprocess.Popen] = None
@@ -30,7 +30,7 @@ class AudioCapture:
         return self._is_running and self._process is not None
 
     def start(self) -> None:
-        """Start capturing audio from VB-Cable."""
+        """Start capturing audio from Voicemeeter."""
         if self._is_running:
             return
 
@@ -39,7 +39,7 @@ class AudioCapture:
         cmd = [
             "ffmpeg",
             "-f", "dshow",                          # DirectShow input (Windows)
-            "-i", f"audio={self.DEVICE_NAME}",      # VB-Cable as input
+            "-i", f"audio={self.DEVICE_NAME}",      # Voicemeeter as input
             "-ac", "2",                             # Stereo
             "-ar", "44100",                         # 44.1kHz sample rate
             "-b:a", "128k",                         # 128kbps bitrate
