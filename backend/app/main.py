@@ -10,7 +10,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.middleware import request_context_middleware
+from app.utils.logger import configure_logging
 from app.websocket.routes import router as websocket_router
+
+configure_logging()
 
 app = FastAPI(
     title=settings.app_name,
@@ -26,6 +30,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.middleware("http")(request_context_middleware)
 
 # Include API routes
 app.include_router(api_router, prefix=settings.api_v1_prefix)

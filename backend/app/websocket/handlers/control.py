@@ -1,4 +1,5 @@
 from app.browser.manager import browser_manager
+from app.utils.logger import get_logger
 from app.websocket.events import EventType, RemoteChangedEvent, RemoteRequestEvent
 from app.websocket.manager import Connection, manager
 from app.websocket.streaming import (
@@ -9,6 +10,8 @@ from app.websocket.streaming import (
 )
 
 from .common import send_error
+
+logger = get_logger(__name__)
 
 
 async def handle_browser_event(connection: Connection, room, data: dict) -> None:
@@ -130,7 +133,12 @@ async def _handle_browser_start(connection: Connection, room) -> None:
         await send_error(connection, "Only the host can start the browser")
         return
 
-    print(f"[DEBUG] Received browser_start from user {connection.user_id}")
+    logger.info(
+        "browser_start_requested",
+        status="requested",
+        room_code=connection.room_code,
+        user_id=connection.user_id,
+    )
     await browser_manager.create_session(connection.room_code)
     start_screenshot_stream(connection.room_code)
     start_audio_stream(connection.room_code)

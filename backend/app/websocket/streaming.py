@@ -2,8 +2,11 @@ import asyncio
 
 from app.browser.audio import audio_capture
 from app.browser.manager import browser_manager
+from app.utils.logger import get_logger
 from app.websocket.events import BrowserAudioEvent, BrowserFrameEvent
 from app.websocket.manager import manager
+
+logger = get_logger(__name__)
 
 # Track screenshot streaming tasks per room
 _screenshot_tasks: dict[str, asyncio.Task] = {}
@@ -20,7 +23,11 @@ def start_screenshot_stream(room_code: str) -> None:
 
     task = asyncio.create_task(_screenshot_loop(room_code))
     _screenshot_tasks[room_code] = task
-    print(f"[Screenshot] Started Playwright screenshot streaming for room {room_code}")
+    logger.info(
+        "screenshot_stream_started",
+        status="started",
+        room_code=room_code,
+    )
 
 
 def stop_screenshot_stream(room_code: str) -> None:
@@ -28,12 +35,20 @@ def stop_screenshot_stream(room_code: str) -> None:
     task = _screenshot_tasks.pop(room_code, None)
     if task:
         task.cancel()
-        print(f"[Screenshot] Stopped streaming for room {room_code}")
+        logger.info(
+            "screenshot_stream_stopped",
+            status="stopped",
+            room_code=room_code,
+        )
 
 
 async def _screenshot_loop(room_code: str) -> None:
     """Continuously capture and broadcast screenshots using Playwright."""
-    print(f"[Screenshot] Broadcast loop started for room {room_code}")
+    logger.info(
+        "screenshot_loop_started",
+        status="running",
+        room_code=room_code,
+    )
     frame_count = 0
     target_fps = 20
     frame_interval = 1.0 / target_fps
@@ -44,7 +59,11 @@ async def _screenshot_loop(room_code: str) -> None:
 
             session = browser_manager.get_session(room_code)
             if not session or not session.is_running:
-                print(f"[Screenshot] Session not running for room {room_code}")
+                logger.info(
+                    "screenshot_loop_ended",
+                    status="session_not_running",
+                    room_code=room_code,
+                )
                 break
 
             try:
@@ -60,9 +79,19 @@ async def _screenshot_loop(room_code: str) -> None:
                 )
 
                 if frame_count % 100 == 0:
-                    print(f"[Screenshot] Broadcast {frame_count} frames for room {room_code}")
+                    logger.info(
+                        "screenshot_frames_broadcast",
+                        status="running",
+                        room_code=room_code,
+                        frame_count=frame_count,
+                    )
             except Exception as exc:
-                print(f"[Screenshot] Error: {exc}")
+                logger.exception(
+                    "screenshot_loop_error",
+                    status="error",
+                    room_code=room_code,
+                    error=str(exc),
+                )
 
             elapsed = asyncio.get_event_loop().time() - loop_start
             sleep_time = frame_interval - elapsed
@@ -79,7 +108,12 @@ def start_audio_stream(room_code: str) -> None:
     global _audio_room
 
     if _audio_room is not None:
-        print(f"[Audio] Cannot start for {room_code} - audio already in use by {_audio_room}")
+        logger.warning(
+            "audio_stream_unavailable",
+            status="already_in_use",
+            room_code=room_code,
+            active_room=_audio_room,
+        )
         return
 
     if room_code in _audio_tasks:
@@ -90,7 +124,11 @@ def start_audio_stream(room_code: str) -> None:
 
     task = asyncio.create_task(_audio_loop(room_code))
     _audio_tasks[room_code] = task
-    print(f"[Audio] Started streaming for room {room_code}")
+    logger.info(
+        "audio_stream_started",
+        status="started",
+        room_code=room_code,
+    )
 
 
 def stop_audio_stream(room_code: str) -> None:
@@ -104,24 +142,41 @@ def stop_audio_stream(room_code: str) -> None:
     if _audio_room == room_code:
         audio_capture.stop()
         _audio_room = None
-        print(f"[Audio] Stopped streaming for room {room_code}")
+        logger.info(
+            "audio_stream_stopped",
+            status="stopped",
+            room_code=room_code,
+        )
 
 
 async def _audio_loop(room_code: str) -> None:
     """Continuously capture and broadcast audio chunks."""
-    print(f"[Audio] Loop started for room {room_code}")
+    logger.info(
+        "audio_loop_started",
+        status="running",
+        room_code=room_code,
+    )
     chunk_count = 0
 
     try:
         async for chunk in audio_capture.stream_chunks(chunk_size=4096):
             session = browser_manager.get_session(room_code)
             if not session or not session.is_running:
-                print(f"[Audio] Session ended for room {room_code}")
+                logger.info(
+                    "audio_loop_ended",
+                    status="session_not_running",
+                    room_code=room_code,
+                )
                 break
 
             chunk_count += 1
             if chunk_count % 100 == 0:
-                print(f"[Audio] Sent {chunk_count} chunks for room {room_code}")
+                logger.info(
+                    "audio_chunks_broadcast",
+                    status="running",
+                    room_code=room_code,
+                    chunk_count=chunk_count,
+                )
 
             audio_event = BrowserAudioEvent(audio=chunk)
             await manager.broadcast_to_room(
