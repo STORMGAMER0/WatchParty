@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     app_name: str = "Watch Party"
     environment: str = "development"
     debug: bool = False
+    sql_echo: bool = False
 
     # Security
     secret_key: str

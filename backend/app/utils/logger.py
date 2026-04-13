@@ -148,10 +148,18 @@ def get_logger(name: str) -> StructuredLogger:
     return StructuredLogger(logging.getLogger(name))
 
 
+def _configure_third_party_loggers() -> None:
+    """Reduce noisy dependency logs while keeping request/app logs visible."""
+    logging.getLogger("sqlalchemy").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+
+
 def configure_logging(level: int = logging.INFO) -> None:
     root_logger = logging.getLogger()
     if getattr(root_logger, "_watch_party_logging_configured", False):
         root_logger.setLevel(level)
+        _configure_third_party_loggers()
         return
 
     handler = logging.StreamHandler(sys.stdout)
@@ -160,4 +168,5 @@ def configure_logging(level: int = logging.INFO) -> None:
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
     root_logger.setLevel(level)
+    _configure_third_party_loggers()
     root_logger._watch_party_logging_configured = True
