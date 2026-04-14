@@ -1,15 +1,19 @@
-import { useState, useRef, useEffect, ReactNode } from 'react';
-import { useVoiceStore } from '../stores/voiceStore';
+import { useState, type ReactNode } from 'react';
+
+import type { VoicePeer } from '../hooks/useVoiceChat';
 
 type TabType = 'text' | 'voice';
 
 interface ChatTabsProps {
   // Voice props
+  isVoiceConnecting: boolean;
   isInVoice: boolean;
   isMuted: boolean;
+  localIsSpeaking: boolean;
+  peers: VoicePeer[];
   onJoinVoice: () => void;
-  onLeaveVoice: () => void;
-  onToggleMute: () => void;
+  onLeaveVoice: () => Promise<void>;
+  onToggleMute: () => Promise<void>;
   // Text chat content (passed as children or render prop)
   children: ReactNode;
 }
@@ -21,15 +25,17 @@ interface ChatTabsProps {
  * - Voice tab: Shows join button (when not connected) or controls + peers (when connected)
  */
 export default function ChatTabs({
+  isVoiceConnecting,
   isInVoice,
   isMuted,
+  localIsSpeaking,
+  peers,
   onJoinVoice,
   onLeaveVoice,
   onToggleMute,
   children,
 }: ChatTabsProps) {
   const [activeTab, setActiveTab] = useState<TabType>('text');
-  const { peers } = useVoiceStore();
 
   return (
     <div className="flex flex-col h-full">
@@ -108,6 +114,7 @@ export default function ChatTabs({
                 </p>
                 <button
                   onClick={onJoinVoice}
+                  disabled={isVoiceConnecting}
                   className="px-6 py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg transition flex items-center gap-2 font-medium"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -118,7 +125,7 @@ export default function ChatTabs({
                       d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15.536a5 5 0 001.414 1.414m2.828-9.9a9 9 0 0112.728 0"
                     />
                   </svg>
-                  Join Voice
+                  {isVoiceConnecting ? 'Connecting...' : 'Join Voice'}
                 </button>
               </div>
             ) : (
@@ -191,7 +198,7 @@ export default function ChatTabs({
                 {/* Peers in Voice */}
                 <div className="flex-1 overflow-y-auto">
                   <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">
-                    In Voice ({peers.size + 1})
+                    In Voice ({peers.length + 1})
                   </p>
 
                   {/* Show yourself first */}
@@ -201,10 +208,20 @@ export default function ChatTabs({
                         <span className="text-sm font-medium text-white">You</span>
                       </div>
                       {!isMuted && (
-                        <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-400 border-2 border-gray-800 rounded-full" />
+                        <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-400 border-2 border-gray-800 rounded-full ${localIsSpeaking ? 'animate-pulse' : ''}`} />
                       )}
                     </div>
                     <span className="text-sm text-gray-300">You</span>
+                    {localIsSpeaking && !isMuted && (
+                      <svg
+                        className="w-4 h-4 text-green-400 ml-auto"
+                        fill="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                        <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+                      </svg>
+                    )}
                     {isMuted && (
                       <svg className="w-4 h-4 text-red-400 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
@@ -214,7 +231,7 @@ export default function ChatTabs({
                   </div>
 
                   {/* Other peers */}
-                  {Array.from(peers.values()).map((peer) => (
+                  {peers.map((peer) => (
                     <div
                       key={peer.userId}
                       className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition mb-1 ${
@@ -251,7 +268,7 @@ export default function ChatTabs({
                     </div>
                   ))}
 
-                  {peers.size === 0 && (
+                  {peers.length === 0 && (
                     <p className="text-sm text-gray-500 text-center py-4">
                       Waiting for others to join voice...
                     </p>

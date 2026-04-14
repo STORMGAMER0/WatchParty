@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 
+    # LiveKit
+    livekit_url: str | None = None
+    livekit_api_key: str | None = None
+    livekit_api_secret: str | None = None
+
     # CORS
     backend_cors_origins: list[str] = ["http://localhost:5173"]
 

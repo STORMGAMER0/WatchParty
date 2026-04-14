@@ -55,31 +55,26 @@ export default function Room() {
 
   // Remote control state
   const [controllerId, setControllerId] = useState<number | null>(null);
-  const [controllerUsername, setControllerUsername] = useState<string>('');
-
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Audio player for browser audio streaming
   const { addChunk: addAudioChunk, reset: resetAudio } = useAudioPlayer();
 
-  // Voice chat (WebRTC)
+  // Voice chat (LiveKit)
   const {
+    isVoiceConnecting,
     isInVoice,
     isMuted,
+    localIsSpeaking,
+    peers,
     joinVoice,
     leaveVoice,
     toggleMute,
-    handleVoiceMessage,
   } = useVoiceChat({
-    userId: user?.id || 0,
-    wsRef,
+    roomCode: roomCode || '',
     onError: (message) => toast.error(message),
   });
-
-  // Store voice message handler in a ref to avoid WebSocket reconnection
-  const voiceMessageHandlerRef = useRef(handleVoiceMessage);
-  voiceMessageHandlerRef.current = handleVoiceMessage;
 
   // Track if user is host (using ref to avoid stale closure in WebSocket handler)
   const isHostRef = useRef(false);
@@ -188,7 +183,6 @@ export default function Room() {
       // Remote control events
       else if (data.event === 'remote_changed') {
         setControllerId(data.controller_id);
-        setControllerUsername(data.controller_username);
         // Show toast if someone else took/received control
         if (data.controller_id !== user?.id) {
           toast.info(`${data.controller_username} now has control`);
@@ -198,10 +192,6 @@ export default function Room() {
         if (data.user_id !== user?.id) {
           toast.info(`${data.username} is requesting control`);
         }
-      }
-      // Voice chat events
-      else if (data.event?.startsWith('voice_')) {
-        voiceMessageHandlerRef.current(data);
       }
     };
 
@@ -240,7 +230,7 @@ export default function Room() {
     try {
       // Leave voice chat if we're in it
       if (isInVoice) {
-        leaveVoice();
+        await leaveVoice();
       }
       await api.post(`/rooms/${roomCode}/leave`);
       navigate('/dashboard');
@@ -269,7 +259,6 @@ export default function Room() {
     // Optimistically set host as controller (server will confirm via remote_changed)
     if (user) {
       setControllerId(user.id);
-      setControllerUsername(user.username);
     }
   };
 
@@ -280,7 +269,6 @@ export default function Room() {
     setBrowserUrl('');
     // Clear controller state
     setControllerId(null);
-    setControllerUsername('');
     // Reset audio player
     resetAudio();
   };
@@ -488,8 +476,11 @@ export default function Room() {
 
           {/* Tabbed Chat/Voice */}
           <ChatTabs
+            isVoiceConnecting={isVoiceConnecting}
             isInVoice={isInVoice}
             isMuted={isMuted}
+            localIsSpeaking={localIsSpeaking}
+            peers={peers}
             onJoinVoice={joinVoice}
             onLeaveVoice={leaveVoice}
             onToggleMute={toggleMute}
