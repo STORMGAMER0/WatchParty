@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.browser.manager import browser_manager
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User
@@ -15,6 +16,8 @@ from app.schemas.room import (
 )
 from app.services.chat_service import ChatService
 from app.services.room_service import RoomService
+from app.websocket.events import RemoteChangedEvent
+from app.websocket.manager import manager
 
 router = APIRouter(prefix="/rooms", tags=["Rooms"])
 
@@ -191,6 +194,27 @@ async def leave_room(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
+
+    updated_room = await room_service.get_room_with_participants(room_code)
+    controller = browser_manager.get_controller(room_code)
+
+    if controller and controller[0] == current_user.id:
+        if updated_room and updated_room.is_active:
+            browser_manager.set_controller(
+                room_code,
+                updated_room.host_id,
+                updated_room.host.username,
+            )
+            remote_event = RemoteChangedEvent(
+                controller_id=updated_room.host_id,
+                controller_username=updated_room.host.username,
+            )
+            await manager.broadcast_to_room(
+                room_code,
+                remote_event.model_dump(mode="json"),
+            )
+        else:
+            browser_manager.clear_controller(room_code)
 
 
 @router.post("/{room_code}/voice-token", response_model=RoomVoiceTokenResponse)
