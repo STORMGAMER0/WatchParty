@@ -174,7 +174,7 @@ async def leave_room(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Leave a room. If the host leaves, the room closes."""
+    """Leave a room. If the host leaves, promote the next participant."""
     room_service = RoomService(db)
     room = await room_service.get_room_by_code(room_code)
 

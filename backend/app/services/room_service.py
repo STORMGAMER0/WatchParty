@@ -89,10 +89,24 @@ class RoomService:
             raise ValueError("Not in this room")
 
         await self.db.delete(participant)
+        await self.db.flush()
 
-        # If host leaves, close the room
-        if room.host_id == user.id:
+        next_participant_query = (
+            select(RoomParticipant)
+            .where(RoomParticipant.room_id == room.id)
+            .order_by(RoomParticipant.joined_at.asc(), RoomParticipant.id.asc())
+        )
+        next_participant_result = await self.db.execute(next_participant_query)
+        next_participant = next_participant_result.scalar_one_or_none()
+
+        # Close the room only when nobody is left.
+        if next_participant is None:
             room.is_active = False
+            return
+
+        # If the host leaves, promote the earliest remaining participant.
+        if room.host_id == user.id:
+            room.host_id = next_participant.user_id
 
     async def close_room(self, room: Room, user: User) -> None:
         """Close a room (host only)."""
