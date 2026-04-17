@@ -30,8 +30,11 @@ interface UseVoiceChatProps {
 
 export function useVoiceChat({ roomCode, onError }: UseVoiceChatProps) {
   const roomRef = useRef<Room | null>(null);
+  const pendingRoomRef = useRef<Room | null>(null);
   const audioElementsRef = useRef<Map<string, HTMLMediaElement>>(new Map());
   const syncTimeoutsRef = useRef<number[]>([]);
+  const isJoiningRef = useRef(false);
+  const joinAttemptRef = useRef(0);
 
   const [isVoiceConnecting, setIsVoiceConnecting] = useState(false);
   const [isInVoice, setIsInVoice] = useState(false);
@@ -100,7 +103,7 @@ export function useVoiceChat({ roomCode, onError }: UseVoiceChatProps) {
     const remotePeers = Array.from(room.remoteParticipants.values()).map((participant) => ({
       userId: participant.identity,
       username: participant.name || participant.identity,
-      isSpeaking: participant.isSpeaking,
+      isSpeaking: participant.isSpeaking && participant.isMicrophoneEnabled,
       isMuted: !participant.isMicrophoneEnabled,
     }));
 
@@ -112,6 +115,26 @@ export function useVoiceChat({ roomCode, onError }: UseVoiceChatProps) {
   const clearScheduledSyncs = useCallback(() => {
     syncTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
     syncTimeoutsRef.current = [];
+  }, []);
+
+  const resetVoiceState = useCallback(() => {
+    setIsInVoice(false);
+    setIsVoiceConnecting(false);
+    setIsMuted(false);
+    setLocalIsSpeaking(false);
+    setPeers([]);
+  }, []);
+
+  const disconnectRoom = useCallback(async (room: Room | null) => {
+    if (!room) {
+      return;
+    }
+
+    try {
+      await room.disconnect();
+    } catch {
+      // Best-effort cleanup; we'll reset local state either way.
+    }
   }, []);
 
   const scheduleParticipantSyncs = useCallback(
@@ -170,34 +193,51 @@ export function useVoiceChat({ roomCode, onError }: UseVoiceChatProps) {
         .on(RoomEvent.Disconnected, () => {
           clearScheduledSyncs();
           cleanupAudioElements();
-          setIsInVoice(false);
-          setIsVoiceConnecting(false);
-          setIsMuted(false);
-          setLocalIsSpeaking(false);
-          setPeers([]);
+          if (roomRef.current === room) {
+            roomRef.current = null;
+          }
+          if (pendingRoomRef.current === room) {
+            pendingRoomRef.current = null;
+          }
+          isJoiningRef.current = false;
+          resetVoiceState();
           roomRef.current = null;
         });
     },
-    [attachRemoteAudioTrack, cleanupAudioElements, clearScheduledSyncs, removeParticipantAudio, syncParticipants]
+    [attachRemoteAudioTrack, cleanupAudioElements, clearScheduledSyncs, removeParticipantAudio, resetVoiceState, syncParticipants]
   );
 
   const joinVoice = useCallback(async () => {
-    if (!roomCode || isVoiceConnecting || isInVoice) {
+    if (!roomCode || isJoiningRef.current || isInVoice) {
       return;
     }
 
+    isJoiningRef.current = true;
     setIsVoiceConnecting(true);
+    const attemptId = joinAttemptRef.current + 1;
+    joinAttemptRef.current = attemptId;
+    let room: Room | null = null;
 
     try {
+      await disconnectRoom(pendingRoomRef.current);
+      pendingRoomRef.current = null;
+
       const response = await api.post<VoiceTokenResponse>(`/rooms/${roomCode}/voice-token`);
       const { token, url } = response.data;
 
-      const room = new Room();
+      room = new Room();
+      pendingRoomRef.current = room;
       registerRoomListeners(room);
 
       await room.connect(url, token);
       await room.localParticipant.setMicrophoneEnabled(true);
 
+      if (joinAttemptRef.current !== attemptId) {
+        await disconnectRoom(room);
+        return;
+      }
+
+      pendingRoomRef.current = null;
       roomRef.current = room;
       setIsInVoice(true);
       syncParticipants(room);
@@ -217,26 +257,28 @@ export function useVoiceChat({ roomCode, onError }: UseVoiceChatProps) {
         'Could not join voice chat.';
       onError?.(detail);
     } finally {
-      setIsVoiceConnecting(false);
+      if (pendingRoomRef.current === room) {
+        pendingRoomRef.current = null;
+      }
+      if (joinAttemptRef.current === attemptId) {
+        isJoiningRef.current = false;
+        setIsVoiceConnecting(false);
+      }
     }
-  }, [attachRemoteAudioTrack, isInVoice, isVoiceConnecting, onError, registerRoomListeners, roomCode, syncParticipants]);
+  }, [attachRemoteAudioTrack, disconnectRoom, isInVoice, onError, registerRoomListeners, roomCode, scheduleParticipantSyncs, syncParticipants]);
 
   const leaveVoice = useCallback(async () => {
-    const room = roomRef.current;
+    const room = pendingRoomRef.current ?? roomRef.current;
+    isJoiningRef.current = false;
+    joinAttemptRef.current += 1;
     clearScheduledSyncs();
     cleanupAudioElements();
 
-    if (room) {
-      await room.disconnect();
-    }
-
+    pendingRoomRef.current = null;
     roomRef.current = null;
-    setIsInVoice(false);
-    setIsVoiceConnecting(false);
-    setIsMuted(false);
-    setLocalIsSpeaking(false);
-    setPeers([]);
-  }, [cleanupAudioElements, clearScheduledSyncs]);
+    await disconnectRoom(room);
+    resetVoiceState();
+  }, [cleanupAudioElements, clearScheduledSyncs, disconnectRoom, resetVoiceState]);
 
   const toggleMute = useCallback(async () => {
     const room = roomRef.current;
@@ -256,14 +298,18 @@ export function useVoiceChat({ roomCode, onError }: UseVoiceChatProps) {
 
   useEffect(() => {
     return () => {
-      if (roomRef.current) {
-        void roomRef.current.disconnect();
-        roomRef.current = null;
+      isJoiningRef.current = false;
+      joinAttemptRef.current += 1;
+      const room = pendingRoomRef.current ?? roomRef.current;
+      pendingRoomRef.current = null;
+      roomRef.current = null;
+      if (room) {
+        void disconnectRoom(room);
       }
       clearScheduledSyncs();
       cleanupAudioElements();
     };
-  }, [cleanupAudioElements, clearScheduledSyncs]);
+  }, [cleanupAudioElements, clearScheduledSyncs, disconnectRoom]);
 
   return {
     isVoiceConnecting,
