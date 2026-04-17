@@ -45,3 +45,11 @@ class RoomWithParticipantsResponse(RoomResponse):
 
     host_username: str
     participants: list[ParticipantResponse]
+
+
+class RoomVoiceTokenResponse(BaseModel):
+    """Schema for a room-scoped LiveKit voice token response."""
+
+    token: str
+    url: str
+    room_name: str

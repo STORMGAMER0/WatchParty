@@ -1,5 +1,12 @@
-from dataclasses import dataclass, field
+from contextvars import Token
+from dataclasses import dataclass
+from uuid import uuid4
+
 from fastapi import WebSocket
+
+from app.utils.logger import get_logger, reset_session_id, set_session_id
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -10,6 +17,8 @@ class Connection:
     user_id: int
     username: str
     room_code: str
+    session_id: str
+    session_token: Token
 
 
 class ConnectionManager:
@@ -27,19 +36,35 @@ class ConnectionManager:
         self, websocket: WebSocket, user_id: int, username: str, room_code: str
     ) -> Connection:
         """Accept a new WebSocket connection and add to room."""
-        await websocket.accept()
+        session_id = str(uuid4())
+        session_token = set_session_id(session_id)
+        try:
+            await websocket.accept()
+        except Exception:
+            reset_session_id(session_token)
+            raise
 
         connection = Connection(
             websocket=websocket,
             user_id=user_id,
             username=username,
             room_code=room_code,
+            session_id=session_id,
+            session_token=session_token,
         )
 
         # Add to room (create room list if doesn't exist)
         if room_code not in self.rooms:
             self.rooms[room_code] = []
         self.rooms[room_code].append(connection)
+
+        logger.info(
+            "websocket_connected",
+            status="connected",
+            room_code=room_code,
+            user_id=user_id,
+            username=username,
+        )
 
         return connection
 
@@ -54,6 +79,15 @@ class ConnectionManager:
             # Clean up empty rooms
             if not self.rooms[room_code]:
                 del self.rooms[room_code]
+
+        logger.info(
+            "websocket_disconnected",
+            status="disconnected",
+            room_code=room_code,
+            user_id=connection.user_id,
+            username=connection.username,
+            session_id=connection.session_id,
+        )
 
     async def broadcast_to_room(self, room_code: str, message: dict) -> None:
         """Send a message to all connections in a room."""

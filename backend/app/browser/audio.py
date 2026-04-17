@@ -9,6 +9,10 @@ import base64
 import subprocess
 from typing import AsyncGenerator, Optional
 
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class AudioCapture:
     """
@@ -57,7 +61,11 @@ class AudioCapture:
             bufsize=0  # Unbuffered
         )
         self._is_running = True
-        print(f"[AudioCapture] Started capturing from {self.DEVICE_NAME}")
+        logger.info(
+            "audio_capture_started",
+            status="started",
+            device_name=self.DEVICE_NAME,
+        )
 
     def stop(self) -> None:
         """Stop capturing audio."""
@@ -71,7 +79,7 @@ class AudioCapture:
                 self._process.kill()
             self._process = None
 
-        print("[AudioCapture] Stopped")
+        logger.info("audio_capture_stopped", status="stopped")
 
     async def read_chunk(self, chunk_size: int = 4096) -> Optional[str]:
         """
@@ -97,8 +105,12 @@ class AudioCapture:
                 return base64.b64encode(chunk).decode("utf-8")
             return None
 
-        except Exception as e:
-            print(f"[AudioCapture] Error reading chunk: {e}")
+        except Exception as exc:
+            logger.exception(
+                "audio_capture_read_failed",
+                status="error",
+                error=str(exc),
+            )
             return None
 
     async def stream_chunks(self, chunk_size: int = 4096) -> AsyncGenerator[str, None]:

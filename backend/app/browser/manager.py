@@ -6,6 +6,9 @@ It keeps track of which rooms have active browser sessions.
 """
 
 from app.browser.session import BrowserSession
+from app.utils.logger import get_logger, get_session_id
+
+logger = get_logger(__name__)
 
 
 class BrowserManager:
@@ -52,14 +55,18 @@ class BrowserManager:
             return existing
 
         # Create new session
-        session = BrowserSession(room_code)
+        session = BrowserSession(room_code, session_id=get_session_id())
         await session.start()
 
         # Store in our dictionary
         self._sessions[room_code] = session
 
-        print(f"[BrowserManager] Created session for room {room_code}")
-        print(f"[BrowserManager] Active sessions: {len(self._sessions)}")
+        logger.info(
+            "browser_session_created",
+            status="created",
+            room_code=room_code,
+            active_sessions=len(self._sessions),
+        )
 
         return session
 
@@ -74,8 +81,12 @@ class BrowserManager:
 
         if session:
             await session.stop()
-            print(f"[BrowserManager] Closed session for room {room_code}")
-            print(f"[BrowserManager] Active sessions: {len(self._sessions)}")
+            logger.info(
+                "browser_session_closed",
+                status="closed",
+                room_code=room_code,
+                active_sessions=len(self._sessions),
+            )
 
     async def close_all_sessions(self) -> None:
         """
@@ -88,7 +99,7 @@ class BrowserManager:
         for room_code in room_codes:
             await self.close_session(room_code)
 
-        print("[BrowserManager] All sessions closed")
+        logger.info("browser_sessions_closed", status="closed")
 
     @property
     def active_session_count(self) -> int:
@@ -111,7 +122,13 @@ class BrowserManager:
     def set_controller(self, room_code: str, user_id: int, username: str) -> None:
         """Set the controller for a room."""
         self._controllers[room_code] = (user_id, username)
-        print(f"[BrowserManager] Controller for {room_code}: {username} (id={user_id})")
+        logger.info(
+            "browser_controller_changed",
+            status="updated",
+            room_code=room_code,
+            user_id=user_id,
+            username=username,
+        )
 
     def clear_controller(self, room_code: str) -> None:
         """Clear the controller for a room."""

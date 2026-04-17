@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.browser.manager import browser_manager
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.message import MessageResponse
@@ -9,12 +11,53 @@ from app.schemas.room import (
     ParticipantResponse,
     RoomCreate,
     RoomResponse,
+    RoomVoiceTokenResponse,
     RoomWithParticipantsResponse,
 )
 from app.services.chat_service import ChatService
 from app.services.room_service import RoomService
+from app.websocket.events import RemoteChangedEvent
+from app.websocket.manager import manager
 
 router = APIRouter(prefix="/rooms", tags=["Rooms"])
+
+
+def _create_livekit_token(
+    *,
+    room_name: str,
+    user_id: int,
+    username: str,
+) -> str:
+    """Build a LiveKit access token for room-scoped voice chat."""
+    try:
+        from livekit.api import AccessToken, VideoGrants
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LiveKit voice backend is not installed. Install the 'livekit-api' package.",
+        ) from exc
+
+    if not settings.livekit_api_key or not settings.livekit_api_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LiveKit API credentials are not configured.",
+        )
+
+    token = (
+        AccessToken(settings.livekit_api_key, settings.livekit_api_secret)
+        .with_identity(str(user_id))
+        .with_name(username)
+        .with_grants(
+            VideoGrants(
+                room_join=True,
+                room=room_name,
+                can_publish=True,
+                can_subscribe=True,
+                can_publish_data=True,
+            )
+        )
+    )
+    return token.to_jwt()
 
 
 @router.post("", response_model=RoomResponse, status_code=status.HTTP_201_CREATED)
@@ -134,7 +177,7 @@ async def leave_room(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Leave a room. If the host leaves, the room closes."""
+    """Leave a room. If the host leaves, promote the next participant."""
     room_service = RoomService(db)
     room = await room_service.get_room_by_code(room_code)
 
@@ -151,6 +194,75 @@ async def leave_room(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
+
+    updated_room = await room_service.get_room_with_participants(room_code)
+    controller = browser_manager.get_controller(room_code)
+
+    if controller and controller[0] == current_user.id:
+        if updated_room and updated_room.is_active:
+            browser_manager.set_controller(
+                room_code,
+                updated_room.host_id,
+                updated_room.host.username,
+            )
+            remote_event = RemoteChangedEvent(
+                controller_id=updated_room.host_id,
+                controller_username=updated_room.host.username,
+            )
+            await manager.broadcast_to_room(
+                room_code,
+                remote_event.model_dump(mode="json"),
+            )
+        else:
+            browser_manager.clear_controller(room_code)
+
+
+@router.post("/{room_code}/voice-token", response_model=RoomVoiceTokenResponse)
+async def create_room_voice_token(
+    room_code: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a room-scoped LiveKit token for an authenticated participant."""
+    if not settings.livekit_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LiveKit server URL is not configured.",
+        )
+
+    room_service = RoomService(db)
+    room = await room_service.get_room_by_code(room_code)
+
+    if not room:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Room not found",
+        )
+
+    if not room.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Room is closed",
+        )
+
+    participant = await room_service.get_participant(room.id, current_user.id)
+    if not participant:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a participant of this room",
+        )
+
+    token = _create_livekit_token(
+        room_name=room.room_code,
+        user_id=current_user.id,
+        username=current_user.username,
+    )
+
+    return RoomVoiceTokenResponse(
+        token=token,
+        url=settings.livekit_url,
+        room_name=room.room_code,
+    )
 
 
 @router.delete("/{room_code}", status_code=status.HTTP_204_NO_CONTENT)
