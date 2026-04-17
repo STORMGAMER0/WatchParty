@@ -1,3 +1,6 @@
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.room import Room
 from app.browser.manager import browser_manager
 from app.utils.logger import get_logger
 from app.websocket.events import EventType, RemoteChangedEvent, RemoteRequestEvent
@@ -14,14 +17,23 @@ from .common import send_error
 logger = get_logger(__name__)
 
 
-async def handle_browser_event(connection: Connection, room, data: dict) -> None:
+async def handle_browser_event(
+    db: AsyncSession,
+    connection: Connection,
+    room: Room,
+    data: dict,
+) -> None:
     """Handle browser session lifecycle and browser input events."""
     event_type = data.get("event")
+    current_room = await _get_current_room(db, room.id)
+    if current_room is None:
+        await send_error(connection, "Room not found")
+        return
 
     if event_type == EventType.BROWSER_START:
-        await _handle_browser_start(connection, room)
+        await _handle_browser_start(connection, current_room)
     elif event_type == EventType.BROWSER_STOP:
-        await _handle_browser_stop(connection, room)
+        await _handle_browser_stop(connection, current_room)
     elif event_type == EventType.BROWSER_NAVIGATE:
         session = await _require_active_session(connection)
         if not session or not await _require_controller(connection):
@@ -63,9 +75,19 @@ async def handle_browser_event(connection: Connection, room, data: dict) -> None
         )
 
 
-async def handle_remote_event(connection: Connection, room, data: dict) -> None:
+async def handle_remote_event(
+    db: AsyncSession,
+    connection: Connection,
+    room: Room,
+    data: dict,
+) -> None:
     """Handle remote control request/pass/take events."""
     event_type = data.get("event")
+    current_room = await _get_current_room(db, room.id)
+    if current_room is None:
+        await send_error(connection, "Room not found")
+        return
+
     session = await _require_active_session(connection)
     if not session:
         return
@@ -112,7 +134,7 @@ async def handle_remote_event(connection: Connection, room, data: dict) -> None:
             target_connection.username,
         )
     elif event_type == EventType.REMOTE_TAKE:
-        if connection.user_id != room.host_id:
+        if connection.user_id != current_room.host_id:
             await send_error(connection, "Only the host can take control")
             return
 
@@ -180,6 +202,10 @@ async def _require_controller(connection: Connection) -> bool:
 
     await send_error(connection, "You don't have control of the browser")
     return False
+
+
+async def _get_current_room(db: AsyncSession, room_id: int) -> Room | None:
+    return await db.get(Room, room_id)
 
 
 async def _broadcast_controller_change(

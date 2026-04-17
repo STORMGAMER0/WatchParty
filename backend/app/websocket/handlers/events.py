@@ -48,11 +48,11 @@ async def dispatch_message(
         return
 
     if event_type in BROWSER_EVENTS:
-        await handle_browser_event(connection, room, data)
+        await handle_browser_event(db, connection, room, data)
         return
 
     if event_type in REMOTE_EVENTS:
-        await handle_remote_event(connection, room, data)
+        await handle_remote_event(db, connection, room, data)
         return
 
     if event_type in VOICE_EVENTS:
